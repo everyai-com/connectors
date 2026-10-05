@@ -1,0 +1,17 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.everyai-com/league-night",
+  "title": "LeagueNight",
+  "description": "Round-robin fixtures, standings and match-day plans for league organizers. Free.",
+  "version": "1.0.0",
+  "repository": {
+    "url": "https://github.com/everyai-com/connectors",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://league-night.magicteams.ai/mcp"
+    }
+  ]
+}

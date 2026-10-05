@@ -1,0 +1,17 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.everyai-com/party-plan",
+  "title": "PartyPlan",
+  "description": "Party budgets, headcount quantities, timelines and checklists. Free.",
+  "version": "1.0.0",
+  "repository": {
+    "url": "https://github.com/everyai-com/connectors",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://party-plan.magicteams.ai/mcp"
+    }
+  ]
+}

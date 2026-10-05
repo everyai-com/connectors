@@ -1,0 +1,22 @@
+name: publish
+on:
+  push:
+    tags: ["servers-*"]  # e.g. servers-fee-fighter-v1.0.1
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "slug=$(echo '${{ github.ref_name }}' | sed 's/^servers-//; s/-v[0-9.]*$//')" >> $GITHUB_ENV
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm i -g mcp-publisher @smithery/cli
+      - run: mcp-publisher publish
+        working-directory: servers/${{ env.slug }}
+        env:
+          # mcp-publisher GitHub auth: provide via secrets (see mcp-publisher docs)
+          GITHUB_TOKEN: ${{ secrets.MCP_PUBLISHER_GITHUB_TOKEN }}
+      - run: npx @smithery/cli mcp publish
+        working-directory: servers/${{ env.slug }}
+        env:
+          SMITHERY_API_KEY: ${{ secrets.SMITHERY_API_KEY }}

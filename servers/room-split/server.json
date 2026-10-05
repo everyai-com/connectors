@@ -1,0 +1,17 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.everyai-com/room-split",
+  "title": "RoomSplit",
+  "description": "Split rent and utilities by room, settle up and generate roommate agreements. Free.",
+  "version": "1.0.0",
+  "repository": {
+    "url": "https://github.com/everyai-com/connectors",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://room-split.magicteams.ai/mcp"
+    }
+  ]
+}

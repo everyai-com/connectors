@@ -1,0 +1,23 @@
+{
+  "name": "service-schedule-mcp",
+  "version": "1.0.0",
+  "description": "ServiceSchedule MCP server - car maintenance due dates, cost estimates, month-by-month schedules and seasonal checklists. One server for ChatGPT, Claude and Muse directories.",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "smoke": "bash scripts/smoke.sh"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

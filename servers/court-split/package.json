@@ -1,0 +1,23 @@
+{
+  "name": "court-split-mcp",
+  "version": "1.0.0",
+  "description": "CourtSplit MCP server - split court costs, minimize settle-up payments, account for recurring sessions and plan fair rotations. One server for ChatGPT, Claude and Muse directories.",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "smoke": "bash scripts/smoke.sh"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

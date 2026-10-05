@@ -1,0 +1,17 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.everyai-com/court-split",
+  "title": "CourtSplit",
+  "description": "Split court costs, settle up and plan fair rotations for pickup games. Free.",
+  "version": "1.0.0",
+  "repository": {
+    "url": "https://github.com/everyai-com/connectors",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://court-split.magicteams.ai/mcp"
+    }
+  ]
+}
