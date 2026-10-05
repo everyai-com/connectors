@@ -29,3 +29,10 @@ per request, nothing stored.
 - Direct MCP: `POST https://<server>.magicteams.ai/mcp` (Streamable HTTP, JSON profile).
 - Agent manifest: `https://<server>.magicteams.ai/.well-known/agent.json`
 
+## Grok Build
+
+Install as a plugin from the [xAI plugin marketplace](https://github.com/xai-org/plugin-marketplace) (`magicteams-connectors`) — all 16 hosted MCP servers plus onboarding skills.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

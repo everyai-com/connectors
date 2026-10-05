@@ -1,0 +1,26 @@
+{
+  "name": "magicteams-connectors",
+  "version": "1.0.0",
+  "description": "16 free hosted MCP servers for everyday jobs: fees, flights, invoices, tutoring, parties, courts and more. No auth, no signup.",
+  "author": {
+    "name": "MagicTeams",
+    "url": "https://github.com/everyai-com"
+  },
+  "homepage": "https://github.com/everyai-com/connectors",
+  "repository": "https://github.com/everyai-com/connectors",
+  "license": "MIT",
+  "keywords": [
+    "magicteams",
+    "feefighter",
+    "tutornow",
+    "invoicegen",
+    "flightfix",
+    "courtsplit",
+    "leaguenight",
+    "partyplan",
+    "recipescale",
+    "roomswap",
+    "leases",
+    "aiready"
+  ]
+}

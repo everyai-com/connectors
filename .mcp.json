@@ -1,0 +1,68 @@
+{
+  "mcpServers": {
+    "ai-ready": {
+      "type": "http",
+      "url": "https://ai-ready.magicteams.ai/mcp"
+    },
+    "court-split": {
+      "type": "http",
+      "url": "https://court-split.magicteams.ai/mcp"
+    },
+    "fee-fighter": {
+      "type": "http",
+      "url": "https://fee-fighter.magicteams.ai/mcp"
+    },
+    "festival-finder": {
+      "type": "http",
+      "url": "https://festival-finder.magicteams.ai/mcp"
+    },
+    "flight-fix": {
+      "type": "http",
+      "url": "https://flight-fix.magicteams.ai/mcp"
+    },
+    "invoice-gen": {
+      "type": "http",
+      "url": "https://invoice-gen.magicteams.ai/mcp"
+    },
+    "league-night": {
+      "type": "http",
+      "url": "https://league-night.magicteams.ai/mcp"
+    },
+    "lease-break": {
+      "type": "http",
+      "url": "https://lease-break.magicteams.ai/mcp"
+    },
+    "party-plan": {
+      "type": "http",
+      "url": "https://party-plan.magicteams.ai/mcp"
+    },
+    "recipe-scale": {
+      "type": "http",
+      "url": "https://recipe-scale.magicteams.ai/mcp"
+    },
+    "report-raja": {
+      "type": "http",
+      "url": "https://report-raja.magicteams.ai/mcp"
+    },
+    "room-split": {
+      "type": "http",
+      "url": "https://room-split.magicteams.ai/mcp"
+    },
+    "sahadeva": {
+      "type": "http",
+      "url": "https://sahadeva.magicteams.ai/mcp"
+    },
+    "service-schedule": {
+      "type": "http",
+      "url": "https://service-schedule.magicteams.ai/mcp"
+    },
+    "sheet-shift": {
+      "type": "http",
+      "url": "https://sheet-shift.magicteams.ai/mcp"
+    },
+    "tutor-now": {
+      "type": "http",
+      "url": "https://tutor-now.magicteams.ai/mcp"
+    }
+  }
+}
