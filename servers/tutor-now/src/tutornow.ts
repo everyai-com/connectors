@@ -4,7 +4,7 @@
 
 export const SUBJECTS = ["math", "physics", "chemistry", "biology", "english", "history", "spanish", "computer-science"];
 const GRADES = ["K", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
-const DAY_HOURS = [9, 11, 14, 16, 18]; // UTC start hours tutors may offer
+export const DAY_HOURS = [9, 11, 14, 16, 18]; // UTC start hours tutors may offer
 
 export type Tutor = {
   id: string; name: string; subjects: string[]; grades: string[];
@@ -34,23 +34,23 @@ export type IntroRequest = {
 const requests = new Map<string, IntroRequest>();
 const byIdempotency = new Map<string, IntroRequest>();
 
-function hash(s: string): number {
+export function hash(s: string): number {
   let h = 0;
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
   return h;
 }
-const findTutor = (id: string) => {
+export const findTutor = (id: string) => {
   const t = TUTORS.find((x) => x.id === id);
   if (!t) throw new Error(`ERROR unknown tutor_id '${id}'. Call search_tutors for valid ids.`);
   return t;
 };
-const checkSubject = (subject: string) => {
+export const checkSubject = (subject: string) => {
   if (!SUBJECTS.includes(subject)) throw new Error(`ERROR unknown subject '${subject}'. Valid: ${SUBJECTS.join(", ")}.`);
 };
-const checkGrade = (grade: string) => {
+export const checkGrade = (grade: string) => {
   if (!GRADES.includes(grade)) throw new Error(`ERROR grade must be K or 1-12, got '${grade}'.`);
 };
-const checkDate = (date: string) => {
+export const checkDate = (date: string) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error(`ERROR date must be YYYY-MM-DD, got '${date}'.`);
 };
 

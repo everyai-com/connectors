@@ -1,0 +1,9 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.everyai-com/mow-recur",
+  "title": "MowRecur",
+  "description": "Recurring lawn-care planning: schedules, quotes, provider compare and reminders. Free.",
+  "version": "1.0.0",
+  "repository": { "url": "https://github.com/everyai-com/connectors", "source": "github" },
+  "remotes": [{ "type": "streamable-http", "url": "https://mow-recur.magicteams.ai/mcp" }]
+}

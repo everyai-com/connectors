@@ -4,6 +4,10 @@
       "type": "http",
       "url": "https://ai-ready.magicteams.ai/mcp"
     },
+    "class-drop": {
+      "type": "http",
+      "url": "https://class-drop.magicteams.ai/mcp"
+    },
     "court-split": {
       "type": "http",
       "url": "https://court-split.magicteams.ai/mcp"
@@ -20,6 +24,14 @@
       "type": "http",
       "url": "https://flight-fix.magicteams.ai/mcp"
     },
+    "grocery-stock": {
+      "type": "http",
+      "url": "https://grocery-stock.magicteams.ai/mcp"
+    },
+    "hvacrescue": {
+      "type": "http",
+      "url": "https://hvacrescue.magicteams.ai/mcp"
+    },
     "invoice-gen": {
       "type": "http",
       "url": "https://invoice-gen.magicteams.ai/mcp"
@@ -32,9 +44,29 @@
       "type": "http",
       "url": "https://lease-break.magicteams.ai/mcp"
     },
+    "meal-kit-match": {
+      "type": "http",
+      "url": "https://meal-kit-match.magicteams.ai/mcp"
+    },
+    "mow-recur": {
+      "type": "http",
+      "url": "https://mow-recur.magicteams.ai/mcp"
+    },
+    "padel-court": {
+      "type": "http",
+      "url": "https://padel-court.magicteams.ai/mcp"
+    },
     "party-plan": {
       "type": "http",
       "url": "https://party-plan.magicteams.ai/mcp"
+    },
+    "pest-blitz": {
+      "type": "http",
+      "url": "https://pest-blitz.magicteams.ai/mcp"
+    },
+    "plumb-now": {
+      "type": "http",
+      "url": "https://plumb-now.magicteams.ai/mcp"
     },
     "recipe-scale": {
       "type": "http",
@@ -52,6 +84,10 @@
       "type": "http",
       "url": "https://sahadeva.magicteams.ai/mcp"
     },
+    "salon-book": {
+      "type": "http",
+      "url": "https://salon-book.magicteams.ai/mcp"
+    },
     "service-schedule": {
       "type": "http",
       "url": "https://service-schedule.magicteams.ai/mcp"
@@ -59,6 +95,10 @@
     "sheet-shift": {
       "type": "http",
       "url": "https://sheet-shift.magicteams.ai/mcp"
+    },
+    "stay-tonight": {
+      "type": "http",
+      "url": "https://stay-tonight.magicteams.ai/mcp"
     },
     "tutor-now": {
       "type": "http",

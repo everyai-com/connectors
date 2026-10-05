@@ -168,12 +168,12 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     { const surface = agentSurface(url); if (surface) return surface; }
     if (request.method === "GET" && (url.pathname === "/" || url.pathname === "/privacy" || url.pathname === "/terms" || url.pathname === "/support"))
       return new Response(LEGAL_PAGES[url.pathname as "/" | "/privacy" | "/terms" | "/support"], { headers: { "content-type": "text/html; charset=utf-8" } });
-    if (request.method === "OPTIONS" && url.pathname === "/mcp")
+    if (request.method === "OPTIONS" && (url.pathname === "/mcp" || url.pathname === "/mcp/"))
       return new Response(null, { status: 204, headers: { ...cors(request),
         "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type, Authorization, Mcp-Session-Id, MCP-Protocol-Version",
         "Access-Control-Max-Age": "86400" } });
-    if (request.method === "GET" && url.pathname === "/mcp") {
+    if (request.method === "GET" && (url.pathname === "/mcp" || url.pathname === "/mcp/")) {
       // No SSE streams here: 405 is the spec-correct refusal (else SSE parsers break on JSON).
       if ((request.headers.get("accept") || "").includes("text/event-stream"))
         return new Response("SSE streams not supported; use POST with application/json",
@@ -181,16 +181,17 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
       return json({ name: "ReportRaja MCP", transport: "Streamable HTTP (JSON response profile)",
         tools: TOOLS.map((t) => t.name) }, 200, cors(request));
     }
-    if (request.method === "DELETE" && url.pathname === "/mcp")
+    if (request.method === "DELETE" && (url.pathname === "/mcp" || url.pathname === "/mcp/"))
       return new Response("No sessions; use POST with application/json",
         { status: 405, headers: { Allow: "POST", ...cors(request) } });
-    if (url.pathname !== "/mcp" || request.method !== "POST") return json({ error: "use POST /mcp, GET /health" }, 404);
+    if ((url.pathname !== "/mcp" && url.pathname !== "/mcp/") || request.method !== "POST") return json({ error: "use POST /mcp, GET /health" }, 404);
     if (env.API_KEY && !safeEqual(request.headers.get("authorization") ?? "", `Bearer ${env.API_KEY}`))
       return json({ error: "unauthorized" }, 401);
     if (Number(request.headers.get("content-length") ?? 0) > MAX_BODY) return json({ error: "body too large" }, 413);
     const body = (await request.json()) as { id?: unknown; method?: string; params?: { name?: string; arguments?: A } };
     const id = body.id ?? null;
     if (body.method === undefined || body.method.startsWith("notifications/")) return new Response(null, { status: 202 });
+    if (body.method === "ping") return json({ jsonrpc: "2.0", id, result: {} }, 200, cors(request));
     if (body.method === "initialize") return json({ jsonrpc: "2.0", id, result: {
       protocolVersion: negotiateVersion((body.params as unknown as { protocolVersion?: unknown })?.protocolVersion),
       capabilities: { tools: { listChanged: false } },

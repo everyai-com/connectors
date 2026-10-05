@@ -6,5 +6,9 @@
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
   "routes": [{ "pattern": "tutor-now.magicteams.ai", "custom_domain": true }],
+  "durable_objects": {
+    "bindings": [{ "name": "TUTOR_STORE", "class_name": "TutorStore" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TutorStore"] }],
   "observability": { "enabled": true, "head_sampling_rate": 1 }
 }

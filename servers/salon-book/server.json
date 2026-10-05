@@ -1,0 +1,9 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.everyai-com/salon-book",
+  "title": "SalonBook",
+  "description": "Salon visit planning: slots, quotes, salon compare and rebook dates. Free.",
+  "version": "1.0.0",
+  "repository": { "url": "https://github.com/everyai-com/connectors", "source": "github" },
+  "remotes": [{ "type": "streamable-http", "url": "https://salon-book.magicteams.ai/mcp" }]
+}

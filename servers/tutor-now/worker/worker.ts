@@ -1,9 +1,86 @@
-/** TutorNow Worker - same engine, served directly. */
+/** TutorNow Worker - pure reads run inline; intro-request state lives in a
+ *  Durable Object so idempotency holds across Worker isolates (SQLite-backed).
+ *  Reference semantics: requestIntro/getRequest/cancelRequest/tutorSlots in
+ *  ../../mcp-server/src/tutornow.ts (node dev server keeps in-memory Maps). */
+import { DurableObject } from "cloudflare:workers";
 import {
-  searchTutors, tutorProfile, tutorSlots, quotePlan, requestIntro, getRequest, cancelRequest,
+  searchTutors, tutorProfile, quotePlan,
+  findTutor, checkSubject, checkGrade, checkDate, DAY_HOURS, hash,
+  type IntroRequest,
 } from "../../mcp-server/src/tutornow.js";
 
-interface Env { API_KEY?: string; OPENAI_APPS_CHALLENGE_TOKEN?: string; }
+interface Env { API_KEY?: string; OPENAI_APPS_CHALLENGE_TOKEN?: string; TUTOR_STORE: DurableObjectNamespace<TutorStore>; }
+
+/** Single coordination atom for intro requests: one instance, strong
+ *  consistency, atomic check-and-set per RPC (DOs are single-threaded). */
+export class TutorStore extends DurableObject<Env> {
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    ctx.blockConcurrencyWhile(async () => {
+      this.ctx.storage.sql.exec(
+        "CREATE TABLE IF NOT EXISTS requests (id TEXT PRIMARY KEY, tutor_id TEXT NOT NULL, starts_at TEXT NOT NULL, student_name TEXT NOT NULL, subject TEXT NOT NULL, grade TEXT NOT NULL, contact TEXT NOT NULL, status TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE)"
+      );
+    });
+  }
+
+  private baseSlots(tutorId: string, date: string): string[] {
+    const h = hash(`${tutorId}:${date}`);
+    return DAY_HOURS.filter((_, i) => (h >> i) % 2 === 0 || i === 0)
+      .map((hh) => `${date}T${String(hh).padStart(2, "0")}:00:00Z`);
+  }
+
+  private takenSlots(tutorId: string): Set<string> {
+    const rows = this.ctx.storage.sql
+      .exec<{ starts_at: string }>("SELECT starts_at FROM requests WHERE tutor_id = ? AND status = 'requested'", tutorId)
+      .toArray();
+    return new Set(rows.map((r) => r.starts_at));
+  }
+
+  async tutorSlots(o: { tutor_id: string; date: string }) {
+    const t = findTutor(o.tutor_id);
+    checkDate(o.date);
+    const taken = this.takenSlots(t.id);
+    return { tutor_id: t.id, date: o.date, slots: this.baseSlots(t.id, o.date).filter((s) => !taken.has(s)) };
+  }
+
+  async requestIntro(o: { tutor_id: string; starts_at: string; student_name: string; subject: string; grade: string; contact: string; idempotency_key: string }) {
+    const dupe = this.ctx.storage.sql.exec<IntroRequest>("SELECT * FROM requests WHERE idempotency_key = ?", o.idempotency_key).toArray();
+    if (dupe.length > 0) return { ...dupe[0], deduped: true };
+    const t = findTutor(o.tutor_id);
+    checkSubject(o.subject);
+    if (!t.subjects.includes(o.subject)) throw new Error(`ERROR ${t.name} does not teach '${o.subject}'. Teaches: ${t.subjects.join(", ")}.`);
+    checkGrade(o.grade);
+    if (!t.grades.includes(o.grade)) throw new Error(`ERROR ${t.name} does not teach grade '${o.grade}'. Teaches: ${t.grades.join(", ")}.`);
+    if (!o.student_name?.trim()) throw new Error("ERROR student_name must be a non-empty string.");
+    if (!o.contact?.trim()) throw new Error("ERROR contact must be a non-empty string (email or phone).");
+    const open = this.baseSlots(t.id, o.starts_at.slice(0, 10)).filter((s) => !this.takenSlots(t.id).has(s));
+    if (!open.includes(o.starts_at)) throw new Error(`ERROR slot '${o.starts_at}' is not open. Open slots: ${open.join(", ") || "none"}.`);
+    const r: IntroRequest = {
+      id: `tr_${Date.now().toString(36)}${Math.floor(Math.random() * 1e4).toString(36)}`,
+      tutor_id: t.id, starts_at: o.starts_at, student_name: o.student_name.trim(),
+      subject: o.subject, grade: o.grade, contact: o.contact.trim(),
+      status: "requested", idempotency_key: o.idempotency_key,
+    };
+    this.ctx.storage.sql.exec(
+      "INSERT INTO requests (id, tutor_id, starts_at, student_name, subject, grade, contact, status, idempotency_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      r.id, r.tutor_id, r.starts_at, r.student_name, r.subject, r.grade, r.contact, r.status, r.idempotency_key);
+    return { ...r, note: "Request held. The tutor confirms within 24 hours; nothing is charged for the intro." };
+  }
+
+  async getRequest(o: { request_id: string }) {
+    const rows = this.ctx.storage.sql.exec<IntroRequest>("SELECT * FROM requests WHERE id = ?", o.request_id).toArray();
+    if (rows.length === 0) throw new Error(`ERROR no request '${o.request_id}'.`);
+    return rows[0];
+  }
+
+  async cancelRequest(o: { request_id: string }) {
+    const r = await this.getRequest(o);
+    this.ctx.storage.sql.exec("UPDATE requests SET status = 'cancelled' WHERE id = ?", o.request_id);
+    return { ...r, status: "cancelled" as const };
+  }
+}
+
+const store = (env: Env) => env.TUTOR_STORE.getByName("tutor-requests");
 const VERSION = "1.0.0";
 const MAX_BODY = 1024 * 1024;
 const RO = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
@@ -18,7 +95,13 @@ const req = (a: A, k: string, t: string): never | unknown => {
   return v;
 };
 
-const TOOLS = [
+type ToolDef = {
+  name: string; title: string;
+  annot: { readOnlyHint: boolean; destructiveHint: boolean; openWorldHint: boolean };
+  description: string; inputSchema: Record<string, unknown>;
+  run: (a: A, env: Env) => unknown | Promise<unknown>;
+};
+const TOOLS: ToolDef[] = [
   { name: "search_tutors", title: "Search tutors", annot: RO,
     description: "Find vetted tutors by subject, with optional grade, max hourly rate and result limit. Returns matches sorted by rating.",
     inputSchema: { type: "object", properties: {
@@ -40,7 +123,7 @@ const TOOLS = [
       tutor_id: { type: "string" },
       date: { type: "string", description: "Date YYYY-MM-DD" },
     }, required: ["tutor_id", "date"] },
-    run: (a: A) => { req(a, "tutor_id", "str"); req(a, "date", "str"); return tutorSlots(a as unknown as Parameters<typeof tutorSlots>[0]); } },
+    run: (a: A, env: Env) => { req(a, "tutor_id", "str"); req(a, "date", "str"); return store(env).tutorSlots(a as unknown as { tutor_id: string; date: string }); } },
   { name: "quote_plan", title: "Quote plan", annot: RO,
     description: "Quote a weekly tutoring plan: total sessions and USD price with long-plan discounts. No booking made.",
     inputSchema: { type: "object", properties: {
@@ -60,22 +143,22 @@ const TOOLS = [
       contact: { type: "string", description: "Parent email or phone" },
       idempotency_key: { type: "string", description: "Client-generated unique key per request" },
     }, required: ["tutor_id", "starts_at", "student_name", "subject", "grade", "contact", "idempotency_key"] },
-    run: (a: A) => {
+    run: (a: A, env: Env) => {
       for (const k of ["tutor_id", "starts_at", "student_name", "subject", "grade", "contact", "idempotency_key"]) req(a, k, "str");
-      return requestIntro(a as unknown as Parameters<typeof requestIntro>[0]);
+      return store(env).requestIntro(a as unknown as { tutor_id: string; starts_at: string; student_name: string; subject: string; grade: string; contact: string; idempotency_key: string });
     } },
   { name: "get_request", title: "Get request", annot: RO,
     description: "Get an intro request's status by id.",
     inputSchema: { type: "object", properties: {
       request_id: { type: "string" },
     }, required: ["request_id"] },
-    run: (a: A) => { req(a, "request_id", "str"); return getRequest(a as unknown as Parameters<typeof getRequest>[0]); } },
+    run: (a: A, env: Env) => { req(a, "request_id", "str"); return store(env).getRequest(a as unknown as { request_id: string }); } },
   { name: "cancel_request", title: "Cancel request", annot: DE,
     description: "Cancel an intro request. The slot opens again. Cannot be undone - confirm with the user first.",
     inputSchema: { type: "object", properties: {
       request_id: { type: "string" },
     }, required: ["request_id"] },
-    run: (a: A) => { req(a, "request_id", "str"); return cancelRequest(a as unknown as Parameters<typeof cancelRequest>[0]); } },
+    run: (a: A, env: Env) => { req(a, "request_id", "str"); return store(env).cancelRequest(a as unknown as { request_id: string }); } },
 ];
 
 function safeEqual(a: string, b: string): boolean {
@@ -207,28 +290,29 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     { const surface = agentSurface(url); if (surface) return surface; }
     if (request.method === "GET" && (url.pathname === "/" || url.pathname === "/privacy" || url.pathname === "/terms" || url.pathname === "/support"))
       return new Response(LEGAL_PAGES[url.pathname as "/" | "/privacy" | "/terms" | "/support"], { headers: { "content-type": "text/html; charset=utf-8" } });
-    if (request.method === "OPTIONS" && url.pathname === "/mcp")
+    if (request.method === "OPTIONS" && (url.pathname === "/mcp" || url.pathname === "/mcp/"))
       return new Response(null, { status: 204, headers: { ...cors(request),
         "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type, Authorization, Mcp-Session-Id, MCP-Protocol-Version",
         "Access-Control-Max-Age": "86400" } });
-    if (request.method === "GET" && url.pathname === "/mcp") {
+    if (request.method === "GET" && (url.pathname === "/mcp" || url.pathname === "/mcp/")) {
       if ((request.headers.get("accept") || "").includes("text/event-stream"))
         return new Response("SSE streams not supported; use POST with application/json",
           { status: 405, headers: { Allow: "POST", ...cors(request) } });
       return json({ name: "TutorNow MCP", transport: "Streamable HTTP (JSON response profile)",
         tools: TOOLS.map((t) => t.name) }, 200, cors(request));
     }
-    if (request.method === "DELETE" && url.pathname === "/mcp")
+    if (request.method === "DELETE" && (url.pathname === "/mcp" || url.pathname === "/mcp/"))
       return new Response("No sessions; use POST with application/json",
         { status: 405, headers: { Allow: "POST", ...cors(request) } });
-    if (url.pathname !== "/mcp" || request.method !== "POST") return json({ error: "use POST /mcp, GET /health" }, 404);
+    if ((url.pathname !== "/mcp" && url.pathname !== "/mcp/") || request.method !== "POST") return json({ error: "use POST /mcp, GET /health" }, 404);
     if (env.API_KEY && !safeEqual(request.headers.get("authorization") ?? "", `Bearer ${env.API_KEY}`))
       return json({ error: "unauthorized" }, 401);
     if (Number(request.headers.get("content-length") ?? 0) > MAX_BODY) return json({ error: "body too large" }, 413);
     const body = (await request.json()) as { id?: unknown; method?: string; params?: { name?: string; arguments?: A } };
     const id = body.id ?? null;
     if (body.method === undefined || body.method.startsWith("notifications/")) return new Response(null, { status: 202 });
+    if (body.method === "ping") return json({ jsonrpc: "2.0", id, result: {} }, 200, cors(request));
     if (body.method === "initialize") return json({ jsonrpc: "2.0", id, result: {
       protocolVersion: negotiateVersion((body.params as unknown as { protocolVersion?: unknown })?.protocolVersion),
       capabilities: { tools: { listChanged: false } },
@@ -249,7 +333,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
       const tool = TOOLS.find((t) => t.name === body.params?.name);
       if (!tool) return json({ jsonrpc: "2.0", id, error: { code: -32602, message: `unknown tool '${body.params?.name}'` } }, 200, cors(request));
       try {
-        return json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(tool.run(body.params?.arguments ?? {})) }] } }, 200, cors(request));
+        return json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(await tool.run(body.params?.arguments ?? {}, env)) }] } }, 200, cors(request));
       } catch (e) {
         const msg = e instanceof Error ? e.message : "tool failed";
         return json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: msg.startsWith("ERROR") ? msg : `ERROR ${msg}` }], isError: true } }, 200, cors(request));

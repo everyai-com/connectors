@@ -1,6 +1,6 @@
 # Connectors — free MCP servers for AI assistants
 
-16 production MCP servers (Streamable HTTP) by MagicTeams, listed in the
+26 production MCP servers (Streamable HTTP) by MagicTeams, listed in the
 ChatGPT Apps, Claude Connectors, and Meta Muse directories. Free, computed
 per request, nothing stored.
 
@@ -22,12 +22,23 @@ per request, nothing stored.
 | [`service-schedule`](servers/service-schedule) | Car maintenance due dates, cost estimates and seasonal checklists. Free. | `https://service-schedule.magicteams.ai/mcp` |
 | [`recipe-scale`](servers/recipe-scale) | Scale recipes, convert kitchen units and merge shopping lists. Free. | `https://recipe-scale.magicteams.ai/mcp` |
 | [`tutor-now`](servers/tutor-now) | Vetted K-12 tutor matching, plan quotes and intro-session requests. Free. | `https://tutor-now.magicteams.ai/mcp` |
+| [`grocery-stock`](servers/grocery-stock) | Weekly grocery restock planning: runout forecasts, lists, quotes and swaps. Free. | `https://grocery-stock.magicteams.ai/mcp` |
+| [`class-drop`](servers/class-drop) | Fitness class planning: schedule search, quotes, break-even and week plans. Free. | `https://class-drop.magicteams.ai/mcp` |
+| [`salon-book`](servers/salon-book) | Salon visit planning: slots, quotes, salon compare and rebook dates. Free. | `https://salon-book.magicteams.ai/mcp` |
+| [`mow-recur`](servers/mow-recur) | Recurring lawn-care planning: schedules, quotes, provider compare and reminders. Free. | `https://mow-recur.magicteams.ai/mcp` |
+| [`plumb-now`](servers/plumb-now) | Plumbing triage: diagnose issues, slots, quotes, plumber compare. Free. | `https://plumb-now.magicteams.ai/mcp` |
+| [`hvacrescue`](servers/hvacrescue) | HVAC triage: symptoms, slots, quotes, tech compare. Free. | `https://hvacrescue.magicteams.ai/mcp` |
+| [`pest-blitz`](servers/pest-blitz) | Pest ID + treatment planning: slots, quotes, compare. Free. | `https://pest-blitz.magicteams.ai/mcp` |
+| [`meal-kit-match`](servers/meal-kit-match) | Meal-kit matching: diets, budget, week plans. Free. | `https://meal-kit-match.magicteams.ai/mcp` |
+| [`padel-court`](servers/padel-court) | Padel planning: clubs, splits, membership math. Free. | `https://padel-court.magicteams.ai/mcp` |
+| [`stay-tonight`](servers/stay-tonight) | Tonight stays: hotels, all-in quotes, trip plans. Free. | `https://stay-tonight.magicteams.ai/mcp` |
 
 ## Use from your AI assistant
 
 - ChatGPT / Claude / Muse: search the server name in the app directory.
 - Direct MCP: `POST https://<server>.magicteams.ai/mcp` (Streamable HTTP, JSON profile).
 - Agent manifest: `https://<server>.magicteams.ai/.well-known/agent.json`
+
 
 ## Grok Build
 
