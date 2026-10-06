@@ -11,7 +11,7 @@ import {
 interface Env { API_KEY?: string; OPENAI_APPS_CHALLENGE_TOKEN?: string; }
 const VERSION = "1.0.0";
 const MAX_BODY = 1024 * 1024;
-const ANNOT = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+const ANNOT = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 
 type A = Record<string, unknown>;
 const req = (a: A, k: string, t: string): never | unknown => {
@@ -23,65 +23,343 @@ const req = (a: A, k: string, t: string): never | unknown => {
 
 const TOOLS = [
   { name: "check_compensation", title: "Check compensation",
-    description: "Check EU261/UK261 compensation eligibility and amount for a delayed or cancelled flight. Give IATA codes; distance is computed for known airports.",
+    description: "Calculate EU261/UK261 compensation for a disrupted flight. Use this when you need to determine the compensation amount for a specific flight disruption. Do NOT use for general compensation rules; use disruption_rights instead.",
     inputSchema: { type: "object", properties: {
       departure: { type: "string", description: "Departure airport IATA code, e.g. LHR" },
       arrival: { type: "string", description: "Arrival airport IATA code, e.g. JFK" },
-      disrupted: { type: "string", enum: ["delayed", "cancelled"] },
-      arrival_delay_hours: { type: "number" },
-      notice_days: { type: "number" },
-      rerouted: { type: "boolean" },
-      reroute_arrival_delay_hours: { type: "number" },
-      reason_category: { type: "string", enum: ["unknown", "weather", "atc", "security", "political", "strike_atc", "strike_airline", "technical", "crew", "other"] },
+      disrupted: { description: "Flight identifier for the disrupted flight", type: "string", enum: ["delayed", "cancelled"] },
+      arrival_delay_hours: { description: "Arrival delay in hours, as a number", type: "number" },
+      notice_days: { description: "Number of days notice given for the disruption", type: "number" },
+      rerouted: { description: "True if the flight was rerouted, false otherwise", type: "boolean" },
+      reroute_arrival_delay_hours: { description: "Arrival delay in hours for the rerouted flight, as a number", type: "number" },
+      reason_category: { description: "Category of disruption reason, e.g. technical, weather", type: "string", enum: ["unknown", "weather", "atc", "security", "political", "strike_atc", "strike_airline", "technical", "crew", "other"] },
       carrier_country: { type: "string", description: "Carrier's country code, e.g. DE" },
-      distance_km: { type: "number" },
+      distance_km: { description: "Flight distance in kilometers, as a number", type: "number" },
     }, required: ["departure", "arrival", "disrupted"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "eligible": {
+         "type": "boolean",
+         "description": "Indicates whether the passenger is eligible for compensation."
+        },
+        "compensation_amount": {
+         "type": "number",
+         "description": "The amount of compensation in EUR, if eligible."
+        },
+        "compensation_currency": {
+         "type": "string",
+         "description": "The currency of the compensation amount."
+        },
+        "reason": {
+         "type": "string",
+         "description": "The reason for the compensation amount or ineligibility."
+        },
+        "distance_km": {
+         "type": "number",
+         "description": "The distance between the departure and arrival airports in kilometers."
+        }
+       },
+       "required": [
+        "eligible",
+        "compensation_amount",
+        "compensation_currency",
+        "reason",
+        "distance_km"
+       ]
+      },
     run: (a: A) => {
       req(a, "departure", "str"); req(a, "arrival", "str"); req(a, "disrupted", "str");
       return checkCompensation({ ...(a as object) } as Parameters<typeof checkCompensation>[0]);
     } },
   { name: "compensation_table", title: "Compensation table",
-    description: "Reference table: EU261/UK261 amounts by distance band, eligibility summary and claim windows.",
+    description: "Retrieve EU261/UK261 compensation amounts by distance band. Use when needing specific compensation details for flights within the EU or UK. Do NOT use for non-EU/UK flights; use disruption_rights instead.",
     inputSchema: { type: "object", properties: {}, required: [] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "distance_bands": {
+         "type": "object",
+         "description": "Compensation amounts by distance band",
+         "properties": {
+          "0-1500km": {
+           "type": "object",
+           "description": "Compensation amounts for flights up to 1500km",
+           "properties": {
+            "short_delay": {
+             "type": "number",
+             "description": "Compensation amount for short delays"
+            },
+            "long_delay": {
+             "type": "number",
+             "description": "Compensation amount for long delays"
+            },
+            "cancellation": {
+             "type": "number",
+             "description": "Compensation amount for cancellations"
+            }
+           },
+           "required": [
+            "short_delay",
+            "long_delay",
+            "cancellation"
+           ]
+          },
+          "1500-3500km": {
+           "type": "object",
+           "description": "Compensation amounts for flights between 1500km and 3500km",
+           "properties": {
+            "short_delay": {
+             "type": "number",
+             "description": "Compensation amount for short delays"
+            },
+            "long_delay": {
+             "type": "number",
+             "description": "Compensation amount for long delays"
+            },
+            "cancellation": {
+             "type": "number",
+             "description": "Compensation amount for cancellations"
+            }
+           },
+           "required": [
+            "short_delay",
+            "long_delay",
+            "cancellation"
+           ]
+          },
+          "over_3500km": {
+           "type": "object",
+           "description": "Compensation amounts for flights over 3500km",
+           "properties": {
+            "short_delay": {
+             "type": "number",
+             "description": "Compensation amount for short delays"
+            },
+            "long_delay": {
+             "type": "number",
+             "description": "Compensation amount for long delays"
+            },
+            "cancellation": {
+             "type": "number",
+             "description": "Compensation amount for cancellations"
+            }
+           },
+           "required": [
+            "short_delay",
+            "long_delay",
+            "cancellation"
+           ]
+          }
+         },
+         "required": [
+          "0-1500km",
+          "1500-3500km",
+          "over_3500km"
+         ]
+        },
+        "eligibility_summary": {
+         "type": "object",
+         "description": "Summary of eligibility criteria for compensation",
+         "properties": {
+          "flight_delay": {
+           "type": "string",
+           "description": "Eligibility criteria for flight delays"
+          },
+          "flight_cancellation": {
+           "type": "string",
+           "description": "Eligibility criteria for flight cancellations"
+          },
+          "flight_diversion": {
+           "type": "string",
+           "description": "Eligibility criteria for flight diversions"
+          }
+         },
+         "required": [
+          "flight_delay",
+          "flight_cancellation",
+          "flight_diversion"
+         ]
+        },
+        "claim_windows": {
+         "type": "object",
+         "description": "Time windows for filing compensation claims",
+         "properties": {
+          "delay": {
+           "type": "string",
+           "description": "Claim window for flight delays"
+          },
+          "cancellation": {
+           "type": "string",
+           "description": "Claim window for flight cancellations"
+          },
+          "diversion": {
+           "type": "string",
+           "description": "Claim window for flight diversions"
+          }
+         },
+         "required": [
+          "delay",
+          "cancellation",
+          "diversion"
+         ]
+        }
+       },
+       "required": [
+        "distance_bands",
+        "eligibility_summary",
+        "claim_windows"
+       ]
+      },
     run: () => compensationTable() },
   { name: "disruption_rights", title: "Disruption rights",
-    description: "List your rights for a delayed, cancelled or overbooked flight: refund/re-routing, care, compensation and escalation path.",
+    description: "Retrieve flight disruption rights for a given flight. Use when needing specific rights for a disrupted flight; NOT for general compensation info. Use compensation_table instead.",
     inputSchema: { type: "object", properties: {
-      departure: { type: "string" },
-      arrival: { type: "string" },
-      disrupted: { type: "string", enum: ["delayed", "cancelled", "denied_boarding"] },
-      arrival_delay_hours: { type: "number" },
-      notice_days: { type: "number" },
+      departure: { description: "3-letter IATA code of departure airport", type: "string" },
+      arrival: { description: "3-letter IATA code of arrival airport", type: "string" },
+      disrupted: { description: "disruption type: cancellation, delay, missed connection", type: "string", enum: ["delayed", "cancelled", "denied_boarding"] },
+      arrival_delay_hours: { description: "arrival delay in hours, as a number", type: "number" },
+      notice_days: { description: "number of days notice given for disruption, as a number", type: "number" },
     }, required: ["departure", "arrival", "disrupted"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "rights": {
+         "type": "object",
+         "description": "Object containing the rights for the disrupted flight",
+         "properties": {
+          "refund": {
+           "type": "boolean",
+           "description": "Indicates if a refund is available"
+          },
+          "re_routing": {
+           "type": "boolean",
+           "description": "Indicates if re-routing is available"
+          },
+          "care": {
+           "type": "object",
+           "description": "Details about care provided during disruption",
+           "properties": {
+            "meals": {
+             "type": "boolean",
+             "description": "Indicates if meals are provided"
+            },
+            "accommodation": {
+             "type": "boolean",
+             "description": "Indicates if accommodation is provided"
+            },
+            "transport": {
+             "type": "boolean",
+             "description": "Indicates if transport is provided"
+            }
+           }
+          },
+          "compensation": {
+           "type": "object",
+           "description": "Details about compensation for the disruption",
+           "properties": {
+            "amount": {
+             "type": "number",
+             "description": "The amount of compensation in the local currency"
+            },
+            "currency": {
+             "type": "string",
+             "description": "The currency of the compensation amount"
+            }
+           }
+          },
+          "escalation_path": {
+           "type": "string",
+           "description": "The path to escalate the disruption issue"
+          }
+         }
+        }
+       },
+       "required": [
+        "rights"
+       ]
+      },
     run: (a: A) => {
       req(a, "departure", "str"); req(a, "arrival", "str"); req(a, "disrupted", "str");
       return disruptionRights(a as unknown as Parameters<typeof disruptionRights>[0]);
     } },
   { name: "claim_timeline", title: "Claim timeline",
-    description: "Claim deadline guidance and evidence checklist for a flight date.",
+    description: "Retrieve claim timeline for a flight date. Use when needing specific deadlines and evidence for EU261 or UK261 claims. Do NOT use for general disruption rights; use disruption_rights instead.",
     inputSchema: { type: "object", properties: {
       flight_date: { type: "string", description: "Flight date YYYY-MM-DD" },
-      scheme: { type: "string", enum: ["EU261", "UK261"] },
+      scheme: { description: "EU261 or UK261, case-sensitive", type: "string", enum: ["EU261", "UK261"] },
     }, required: ["flight_date", "scheme"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "scheme": {
+         "type": "string",
+         "description": "The scheme under which the claim is being made, either EU261 or UK261."
+        },
+        "flight_date": {
+         "type": "string",
+         "description": "The date of the flight in YYYY-MM-DD format."
+        },
+        "claim_deadline": {
+         "type": "string",
+         "description": "The deadline by which the claim must be submitted, in YYYY-MM-DD format."
+        },
+        "evidence_checklist": {
+         "type": "array",
+         "description": "A list of required evidence for the claim.",
+         "items": {
+          "type": "string",
+          "description": "A specific piece of evidence required for the claim."
+         }
+        }
+       },
+       "required": [
+        "scheme",
+        "flight_date",
+        "claim_deadline",
+        "evidence_checklist"
+       ]
+      },
     run: (a: A) => {
       req(a, "flight_date", "str"); req(a, "scheme", "str");
       return claimTimeline(a as unknown as Parameters<typeof claimTimeline>[0]);
     } },
   { name: "generate_claim_letter", title: "Generate claim letter",
-    description: "Generate a formal compensation claim letter to the airline, citing EU261/UK261 with your flight details filled in.",
+    description: "Create a compensation claim letter for an airline delay/cancellation, using EU261/UK261. Use this when you need a formal letter to send to the airline. Do NOT use when you need to check eligibility first; use check_compensation instead.",
     inputSchema: { type: "object", properties: {
-      passenger_name: { type: "string" },
-      airline_name: { type: "string" },
+      passenger_name: { description: "Full name of the passenger", type: "string" },
+      airline_name: { description: "Name of the airline", type: "string" },
       flight_number: { type: "string", description: "e.g. BA117" },
       flight_date: { type: "string", description: "YYYY-MM-DD" },
       departure: { type: "string", description: "IATA code" },
       arrival: { type: "string", description: "IATA code" },
-      incident_summary: { type: "string" },
-      claimed_amount: { type: "number" },
-      currency: { type: "string", enum: ["EUR", "GBP"] },
-      booking_reference: { type: "string" },
-      scheme: { type: "string", enum: ["EU261", "UK261"] },
+      incident_summary: { description: "Brief description of the delay/cancellation", type: "string" },
+      claimed_amount: { description: "Amount of compensation claimed", type: "number" },
+      currency: { description: "Currency of the claimed amount, ISO code", type: "string", enum: ["EUR", "GBP"] },
+      booking_reference: { description: "Booking reference number", type: "string" },
+      scheme: { description: "Compensation scheme, EU261 or UK261", type: "string", enum: ["EU261", "UK261"] },
     }, required: ["passenger_name", "airline_name", "flight_number", "flight_date", "departure", "arrival"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "letter": {
+         "type": "string",
+         "description": "The generated claim letter as a plain text string."
+        },
+        "letter_html": {
+         "type": "string",
+         "description": "The generated claim letter as an HTML string."
+        },
+        "letter_pdf": {
+         "type": "string",
+         "format": "byte",
+         "description": "The generated claim letter as a PDF file in base64 encoding."
+        }
+       },
+       "required": [
+        "letter"
+       ]
+      },
     run: (a: A) => {
       for (const k of ["passenger_name", "airline_name", "flight_number", "flight_date", "departure", "arrival"]) req(a, k, "str");
       return generateClaimLetter(a as unknown as Parameters<typeof generateClaimLetter>[0]);
@@ -253,7 +531,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
       ttlMs: 3600000,
       cacheScope: "public",
     } }, 200, cors(request));
-    if (body.method === "tools/list") return json({ jsonrpc: "2.0", id, result: { tools: TOOLS.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema, annotations: { title: t.title, ...ANNOT } })) } }, 200, cors(request));
+    if (body.method === "tools/list") return json({ jsonrpc: "2.0", id, result: { tools: TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, outputSchema: t.outputSchema, annotations: { ...ANNOT } })) } }, 200, cors(request));
     if (body.method === "tools/call") {
       const tool = TOOLS.find((t) => t.name === body.params?.name);
       if (!tool) return json({ jsonrpc: "2.0", id, error: { code: -32602, message: `unknown tool '${body.params?.name}'` } }, 200, cors(request));

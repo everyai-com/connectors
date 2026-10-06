@@ -8,7 +8,7 @@ import { TEMPLATES, createWeeklyReport, formatReportPlain, weekBounds, type Week
 const PORT = Number(process.env.PORT ?? 3004);
 const API_KEY = process.env.API_KEY ?? "";
 const CHALLENGE = process.env.OPENAI_APPS_CHALLENGE_TOKEN ?? "";
-const RO = { readOnlyHint: true, destructiveHint: false, openWorldHint: false } as const;
+const RO = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const;
 const ReportShape = {
   client_name: z.string(), week_start: z.string().describe("YYYY-MM-DD, Monday"),
   accomplishments: z.array(z.string()), hours_logged: z.number().optional(),
@@ -24,17 +24,17 @@ function buildServer(): McpServer {
     try { return { content: [{ type: "text" as const, text: JSON.stringify(fn()) }] }; }
     catch (e) { return { content: [{ type: "text" as const, text: `ERROR ${e instanceof Error ? e.message : "bad input"}` }], isError: true }; }
   };
-  server.tool("create_weekly_report", "Build a weekly client report from accomplishments, hours, blockers and next-week plans. Nothing stored.",
-    ReportShape, { title: "Create weekly report", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  server.tool("create_weekly_report", "Generate a weekly report from accomplishments, hours, blockers, and next-week plans. Use when needing a structured report. Do NOT use when needing a text-only report; use render_report_text instead.",
+    ReportShape, { title: "Create weekly report", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => createWeeklyReport(a as WeeklyReportInput))());
-  server.tool("render_report_text", "Render a weekly report as plain text (same inputs as create_weekly_report).",
-    ReportShape, { title: "Render report text", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  server.tool("render_report_text", "Generate a weekly report as plain text. Use when needing a text-only report. Avoid when needing a formatted report, use report_templates instead.",
+    ReportShape, { title: "Render report text", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => ({ text: formatReportPlain(createWeeklyReport(a as WeeklyReportInput)) }))());
-  server.tool("report_templates", "List built-in report templates (freelancer, agency, standup).",
-    {}, { title: "Report templates", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  server.tool("report_templates", "List all built-in report templates for the current user. Use when needing a list of available templates; NOT when generating a specific report (use create_weekly_report).",
+    {}, { title: "Report templates", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async () => wrap(() => ({ templates: TEMPLATES }))());
-  server.tool("week_bounds", "Monday..Sunday bounds for the week containing a date (YYYY-MM-DD).",
-    { date: z.string() }, { title: "Week bounds", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  server.tool("week_bounds", "Retrieve Monday-Sunday bounds for a given date. Use when you need to determine the week range for a specific date. Do NOT use when you need to generate a text report, use render_report_text instead.",
+    { date: z.string() }, { title: "Week bounds", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => weekBounds(a.date))());
   return server;
 }

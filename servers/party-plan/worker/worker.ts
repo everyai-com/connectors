@@ -4,7 +4,7 @@ import { headcountPlan, partyBudget, partyChecklist, partyTimeline } from "../..
 interface Env { API_KEY?: string; OPENAI_APPS_CHALLENGE_TOKEN?: string; }
 const VERSION = "1.0.0";
 const MAX_BODY = 1024 * 1024;
-const ANNOT = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+const ANNOT = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 
 type A = Record<string, unknown>;
 const req = (a: A, k: string, t: string): never | unknown => {
@@ -17,44 +17,363 @@ const req = (a: A, k: string, t: string): never | unknown => {
 
 const TOOLS = [
   { name: "party_budget", title: "Party budget",
-    description: "Allocate a party budget across venue, food and drink, cake, decorations, entertainment, favors and contingency, with per-guest spend and category tips. Use when planning what to spend before booking; style picks the split (budget, standard or premium).",
+    description: "Calculate a party budget split across categories and per-guest spend. Use when planning what to spend before booking; use headcount_plan to estimate guest count.",
     inputSchema: { type: "object", properties: {
       budget: { type: "number", description: "Total party budget in USD" },
       guests: { type: "number", description: "Number of guests (1-500)" },
       style: { type: "string", enum: ["budget", "standard", "premium"], description: "Spending style, default standard" },
     }, required: ["budget", "guests"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "venue": { description: "Venue costs, including rental and any additional fees, in ISO currency code",
+         "type": "object",
+         "properties": {
+          "amount": {
+           "type": "number",
+           "description": "Amount allocated for the venue in USD"
+          },
+          "tip": {
+           "type": "string",
+           "description": "Tip for venue selection"
+          }
+         },
+         "required": [
+          "amount",
+          "tip"
+         ]
+        },
+        "food_and_drink": { description: "Total cost for food and drinks, in ISO currency code",
+         "type": "object",
+         "properties": {
+          "amount": {
+           "type": "number",
+           "description": "Amount allocated for food and drink in USD"
+          },
+          "tip": {
+           "type": "string",
+           "description": "Tip for food and drink selection"
+          }
+         },
+         "required": [
+          "amount",
+          "tip"
+         ]
+        },
+        "cake": { description: "Cost of the cake, in ISO currency code",
+         "type": "object",
+         "properties": {
+          "amount": {
+           "type": "number",
+           "description": "Amount allocated for the cake in USD"
+          },
+          "tip": {
+           "type": "string",
+           "description": "Tip for cake selection"
+          }
+         },
+         "required": [
+          "amount",
+          "tip"
+         ]
+        },
+        "decorations": { description: "Total cost for decorations, in ISO currency code",
+         "type": "object",
+         "properties": {
+          "amount": {
+           "type": "number",
+           "description": "Amount allocated for decorations in USD"
+          },
+          "tip": {
+           "type": "string",
+           "description": "Tip for decorations selection"
+          }
+         },
+         "required": [
+          "amount",
+          "tip"
+         ]
+        },
+        "entertainment": { description: "Cost for entertainment, such as DJ or band, in ISO currency code",
+         "type": "object",
+         "properties": {
+          "amount": {
+           "type": "number",
+           "description": "Amount allocated for entertainment in USD"
+          },
+          "tip": {
+           "type": "string",
+           "description": "Tip for entertainment selection"
+          }
+         },
+         "required": [
+          "amount",
+          "tip"
+         ]
+        },
+        "favors": { description: "Total cost for party favors, in ISO currency code",
+         "type": "object",
+         "properties": {
+          "amount": {
+           "type": "number",
+           "description": "Amount allocated for favors in USD"
+          },
+          "tip": {
+           "type": "string",
+           "description": "Tip for favors selection"
+          }
+         },
+         "required": [
+          "amount",
+          "tip"
+         ]
+        },
+        "contingency": { description: "Amount set aside for unexpected expenses, in ISO currency code",
+         "type": "object",
+         "properties": {
+          "amount": {
+           "type": "number",
+           "description": "Amount allocated for contingency in USD"
+          },
+          "tip": {
+           "type": "string",
+           "description": "Tip for contingency planning"
+          }
+         },
+         "required": [
+          "amount",
+          "tip"
+         ]
+        },
+        "per_guest_spend": {
+         "type": "number",
+         "description": "Estimated spend per guest in USD"
+        }
+       },
+       "required": [
+        "venue",
+        "food_and_drink",
+        "cake",
+        "decorations",
+        "entertainment",
+        "favors",
+        "contingency",
+        "per_guest_spend"
+       ]
+      },
     run: (a: A) => {
       req(a, "budget", "num"); req(a, "guests", "num");
       return partyBudget(a as unknown as Parameters<typeof partyBudget>[0]);
     } },
   { name: "headcount_plan", title: "Headcount plan",
-    description: "Turn an invite list into expected attendance and shopping quantities: mains portions, drinks, cake slices, favors and plates with standard buffers. Use once RSVPs start arriving; attendance assumes adults only unless children_pct is given.",
+    description: "Calculate expected attendance and shopping quantities from an invite list. Use when RSVPs start arriving; use party_budget to estimate costs.",
     inputSchema: { type: "object", properties: {
       invited: { type: "number", description: "People invited (1-1000)" },
       expected_decline_pct: { type: "number", description: "Expected share who decline, 0-100 (default 15)" },
       children_pct: { type: "number", description: "Share of attendees who are children, 0-100 (default 0)" },
     }, required: ["invited"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "expected_attendance": {
+         "type": "integer",
+         "description": "Estimated number of adults attending"
+        },
+        "expected_children": {
+         "type": "integer",
+         "description": "Estimated number of children attending"
+        },
+        "mains_portions": {
+         "type": "integer",
+         "description": "Number of main course portions needed"
+        },
+        "drinks": {
+         "type": "integer",
+         "description": "Number of drinks needed"
+        },
+        "cake_slices": {
+         "type": "integer",
+         "description": "Number of cake slices needed"
+        },
+        "favors": {
+         "type": "integer",
+         "description": "Number of favors needed"
+        },
+        "plates": {
+         "type": "integer",
+         "description": "Number of plates needed"
+        }
+       },
+       "required": [
+        "expected_attendance",
+        "expected_children",
+        "mains_portions",
+        "drinks",
+        "cake_slices",
+        "favors",
+        "plates"
+       ]
+      },
     run: (a: A) => {
       req(a, "invited", "num");
       return headcountPlan(a as unknown as Parameters<typeof headcountPlan>[0]);
     } },
   { name: "party_timeline", title: "Party timeline",
-    description: "Build a countdown plan for a party date: dated milestones at T-42, T-28, T-21, T-14, T-7, T-3, T-1 days and the day itself, each with tasks covering venue, invitations, menu, cake, decorations, confirmations, setup and the day-of run sheet.",
+    description: "Generate a party timeline for a specific event date. Use when planning a party with multiple tasks. Do NOT use when budgeting for the party, use party_budget instead.",
     inputSchema: { type: "object", properties: {
       event_date: { type: "string", description: "Party date in YYYY-MM-DD format" },
       event_type: { type: "string", description: "Optional event label, e.g. 'birthday', 'bbq' or 'kids party'" },
       guests: { type: "number", description: "Optional guest count for cake sizing" },
     }, required: ["event_date"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "event_date": {
+         "type": "string",
+         "description": "The date of the party in YYYY-MM-DD format."
+        },
+        "event_type": {
+         "type": "string",
+         "description": "The type of event, e.g., 'birthday', 'bbq', or 'kids party'."
+        },
+        "guests": {
+         "type": "number",
+         "description": "The number of guests attending the party."
+        },
+        "timeline": {
+         "type": "array",
+         "description": "A list of milestones and tasks leading up to the party.",
+         "items": {
+          "type": "object",
+          "properties": {
+           "days_until": {
+            "type": "number",
+            "description": "The number of days until the party for this milestone."
+           },
+           "tasks": {
+            "type": "object",
+            "description": "A list of tasks to complete for this milestone.",
+            "properties": {
+             "venue": {
+              "type": "array",
+              "description": "Tasks related to the venue.",
+              "items": {
+               "type": "string"
+              }
+             },
+             "invitations": {
+              "type": "array",
+              "description": "Tasks related to invitations.",
+              "items": {
+               "type": "string"
+              }
+             },
+             "menu": {
+              "type": "array",
+              "description": "Tasks related to the menu.",
+              "items": {
+               "type": "string"
+              }
+             },
+             "cake": {
+              "type": "array",
+              "description": "Tasks related to the cake.",
+              "items": {
+               "type": "string"
+              }
+             },
+             "decorations": {
+              "type": "array",
+              "description": "Tasks related to decorations.",
+              "items": {
+               "type": "string"
+              }
+             },
+             "confirmations": {
+              "type": "array",
+              "description": "Tasks related to confirmations.",
+              "items": {
+               "type": "string"
+              }
+             },
+             "setup": {
+              "type": "array",
+              "description": "Tasks related to setup.",
+              "items": {
+               "type": "string"
+              }
+             },
+             "run_sheet": {
+              "type": "array",
+              "description": "Tasks for the day-of run sheet.",
+              "items": {
+               "type": "string"
+              }
+             }
+            }
+           }
+          }
+         }
+        }
+       }
+      },
     run: (a: A) => {
       req(a, "event_date", "str");
       return partyTimeline(a as unknown as Parameters<typeof partyTimeline>[0]);
     } },
   { name: "party_checklist", title: "Party checklist",
-    description: "Build a checklist grouped by food and drink, decorations, music and activities, practical items and safety, tailored to a home or venue party. Optional extras keywords (pool, bbq, costume, outdoor, kids, alcohol, potluck) add specific items and safety notes.",
+    description: "Generate a party checklist by category for a home or venue. Use when planning a party, NOT when planning a party budget.",
     inputSchema: { type: "object", properties: {
       venue: { type: "string", enum: ["home", "venue"], description: "Where the party happens" },
       extras: { type: "array", items: { type: "string" }, description: "Optional keywords such as 'pool', 'bbq', 'costume', 'outdoor'" },
     }, required: ["venue"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "food_and_drink": {
+         "type": "array",
+         "description": "List of food and drink items to prepare or purchase.",
+         "items": {
+          "type": "string"
+         }
+        },
+        "decorations": {
+         "type": "array",
+         "description": "List of decoration items to prepare or purchase.",
+         "items": {
+          "type": "string"
+         }
+        },
+        "music_and_activities": {
+         "type": "array",
+         "description": "List of music and activities to plan.",
+         "items": {
+          "type": "string"
+         }
+        },
+        "practical_items": {
+         "type": "array",
+         "description": "List of practical items to prepare or purchase.",
+         "items": {
+          "type": "string"
+         }
+        },
+        "safety_notes": {
+         "type": "array",
+         "description": "List of safety notes to consider.",
+         "items": {
+          "type": "string"
+         }
+        }
+       },
+       "required": [
+        "food_and_drink",
+        "decorations",
+        "music_and_activities",
+        "practical_items",
+        "safety_notes"
+       ]
+      },
     run: (a: A) => {
       req(a, "venue", "str");
       return partyChecklist(a as unknown as Parameters<typeof partyChecklist>[0]);
@@ -225,7 +544,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
       ttlMs: 3600000,
       cacheScope: "public",
     } }, 200, cors(request));
-    if (body.method === "tools/list") return json({ jsonrpc: "2.0", id, result: { tools: TOOLS.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema, annotations: { title: t.title, ...ANNOT } })) } }, 200, cors(request));
+    if (body.method === "tools/list") return json({ jsonrpc: "2.0", id, result: { tools: TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, outputSchema: t.outputSchema, annotations: { ...ANNOT } })) } }, 200, cors(request));
     if (body.method === "tools/call") {
       const tool = TOOLS.find((t) => t.name === body.params?.name);
       if (!tool) return json({ jsonrpc: "2.0", id, error: { code: -32602, message: `unknown tool '${body.params?.name}'` } }, 200, cors(request));

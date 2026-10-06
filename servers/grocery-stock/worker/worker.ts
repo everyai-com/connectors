@@ -6,7 +6,7 @@ import {
 interface Env { API_KEY?: string; OPENAI_APPS_CHALLENGE_TOKEN?: string; }
 
 const VERSION = "1.0.0";
-const RO = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+const RO = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 
 type A = Record<string, unknown>;
 const str = (v: unknown) => typeof v === "string";
@@ -18,44 +18,344 @@ const req = (a: A, k: string, t: "str" | "num") => {
 
 const TOOLS = [
   { name: "forecast_runout", title: "Forecast runout",
-    description: "Forecast when each staple runs out from on-hand amounts and weekly use: weeks left, runout date and ok/low/out status.",
+    description: "Calculate the runout date for each staple from on-hand amounts and weekly use. Use when you need to plan restocking. Do NOT use when you need to build a restock list; use build_restock_list instead.",
     inputSchema: { type: "object", properties: {
       staples: { type: "array", description: "Staples with on-hand amounts and weekly use", items: { type: "object" } },
       as_of: { type: "string", description: "Reference date YYYY-MM-DD, default today" } }, required: ["staples"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "staples": {
+         "type": "array",
+         "description": "List of staples with runout details",
+         "items": {
+          "type": "object",
+          "properties": {
+           "name": {
+            "type": "string",
+            "description": "Name of the staple"
+           },
+           "weeks_left": {
+            "type": "number",
+            "description": "Number of weeks left until the staple runs out"
+           },
+           "runout_date": {
+            "type": "string",
+            "description": "Date when the staple is expected to run out (YYYY-MM-DD)"
+           },
+           "status": {
+            "type": "string",
+            "description": "Status of the staple (ok/low/out)",
+            "enum": [
+             "ok",
+             "low",
+             "out"
+            ]
+           }
+          },
+          "required": [
+           "name",
+           "weeks_left",
+           "runout_date",
+           "status"
+          ]
+         }
+        },
+        "as_of": {
+         "type": "string",
+         "description": "Reference date for the forecast (YYYY-MM-DD)"
+        }
+       },
+       "required": [
+        "staples",
+        "as_of"
+       ]
+      },
     annot: RO,
     run: (a: A) => forecastRunout(a as unknown as Parameters<typeof forecastRunout>[0]) },
   { name: "build_restock_list", title: "Build restock list",
-    description: "Build a restock shopping list covering N weeks ahead from on-hand amounts and weekly use.",
+    description: "Generate a restock shopping list for N weeks from current inventory and usage. Use when planning regular grocery trips. Do NOT use when comparing prices across stores; use compare_store_tiers instead.",
     inputSchema: { type: "object", properties: {
       staples: { type: "array", description: "Staples with on-hand amounts and weekly use", items: { type: "object" } },
       weeks_ahead: { type: "number", description: "Weeks to cover, 1-8, default 2" } }, required: ["staples"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "restock_list": {
+         "type": "array",
+         "description": "List of items to restock",
+         "items": {
+          "type": "object",
+          "properties": {
+           "item_name": {
+            "type": "string",
+            "description": "Name of the item"
+           },
+           "quantity_needed": {
+            "type": "number",
+            "description": "Quantity of the item needed for restocking"
+           },
+           "weeks_supply": {
+            "type": "number",
+            "description": "Number of weeks the restocked quantity will last"
+           }
+          },
+          "required": [
+           "item_name",
+           "quantity_needed",
+           "weeks_supply"
+          ]
+         }
+        }
+       },
+       "required": [
+        "restock_list"
+       ]
+      },
     annot: RO,
     run: (a: A) => buildRestockList(a as unknown as Parameters<typeof buildRestockList>[0]) },
   { name: "quote_basket", title: "Quote basket",
-    description: "Price a basket of staples with typical US prices: per-item lines and a total. Prices are typical, not store quotes.",
+    description: "Price a basket of staples with typical US prices. Use when needing a quick, general price estimate. Not for comparing specific store prices, use compare_store_tiers instead.",
     inputSchema: { type: "object", properties: {
       items: { type: "array", description: "Items and quantities to price", items: { type: "object" } } }, required: ["items"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "basketTotal": {
+         "type": "number",
+         "description": "The total price of the basket of staples."
+        },
+        "itemPrices": {
+         "type": "array",
+         "description": "The price of each item in the basket.",
+         "items": {
+          "type": "object",
+          "properties": {
+           "itemName": {
+            "type": "string",
+            "description": "The name of the item."
+           },
+           "quantity": {
+            "type": "number",
+            "description": "The quantity of the item."
+           },
+           "pricePerUnit": {
+            "type": "number",
+            "description": "The price per unit of the item."
+           },
+           "totalPrice": {
+            "type": "number",
+            "description": "The total price for the quantity of the item."
+           }
+          },
+          "required": [
+           "itemName",
+           "quantity",
+           "pricePerUnit",
+           "totalPrice"
+          ]
+         }
+        }
+       },
+       "required": [
+        "basketTotal",
+        "itemPrices"
+       ]
+      },
     annot: RO,
     run: (a: A) => quoteBasket(a as unknown as Parameters<typeof quoteBasket>[0]) },
   { name: "compare_store_tiers", title: "Compare store tiers",
-    description: "Compare what the same basket costs at budget, standard and premium store tiers, and name the cheapest.",
+    description: "Compare basket costs across budget, standard, and premium store tiers to find the cheapest. Use when evaluating cost savings; NOT for restocking schedules, use restock_schedule.",
     inputSchema: { type: "object", properties: {
       items: { type: "array", description: "Items and quantities to compare", items: { type: "object" } } }, required: ["items"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "cheapestTier": {
+         "type": "string",
+         "description": "The store tier with the lowest cost for the basket."
+        },
+        "costs": {
+         "type": "object",
+         "description": "The cost of the basket at each store tier.",
+         "properties": {
+          "budget": {
+           "type": "number",
+           "description": "The cost of the basket at the budget store tier."
+          },
+          "standard": {
+           "type": "number",
+           "description": "The cost of the basket at the standard store tier."
+          },
+          "premium": {
+           "type": "number",
+           "description": "The cost of the basket at the premium store tier."
+          }
+         },
+         "required": [
+          "budget",
+          "standard",
+          "premium"
+         ]
+        },
+        "items": {
+         "type": "array",
+         "description": "The items and their quantities in the basket.",
+         "items": {
+          "type": "object",
+          "properties": {
+           "name": {
+            "type": "string",
+            "description": "The name of the item."
+           },
+           "quantity": {
+            "type": "integer",
+            "description": "The quantity of the item."
+           },
+           "budgetPrice": {
+            "type": "number",
+            "description": "The price of the item at the budget store tier."
+           },
+           "standardPrice": {
+            "type": "number",
+            "description": "The price of the item at the standard store tier."
+           },
+           "premiumPrice": {
+            "type": "number",
+            "description": "The price of the item at the premium store tier."
+           }
+          },
+          "required": [
+           "name",
+           "quantity",
+           "budgetPrice",
+           "standardPrice",
+           "premiumPrice"
+          ]
+         }
+        }
+       },
+       "required": [
+        "cheapestTier",
+        "costs",
+        "items"
+       ]
+      },
     annot: RO,
     run: (a: A) => compareStoreTiers(a as unknown as Parameters<typeof compareStoreTiers>[0]) },
   { name: "suggest_swaps", title: "Suggest swaps",
-    description: "Fit a basket into a budget by swapping the priciest lines for cheaper staples, biggest savings first.",
+    description: "Swap priciest basket items for cheaper staples to fit budget. Use when budget is tight, NOT when needing to forecast runout.",
     inputSchema: { type: "object", properties: {
       items: { type: "array", description: "Items and quantities in the basket", items: { type: "object" } },
       budget_usd: { type: "number", description: "Target budget in USD" } }, required: ["items", "budget_usd"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "original_basket": {
+         "type": "array",
+         "description": "The original basket of items before any swaps were made.",
+         "items": {
+          "type": "object",
+          "properties": {
+           "item": {
+            "type": "string",
+            "description": "The name of the item."
+           },
+           "quantity": {
+            "type": "number",
+            "description": "The quantity of the item."
+           },
+           "price": {
+            "type": "number",
+            "description": "The price of the item."
+           }
+          },
+          "required": [
+           "item",
+           "quantity",
+           "price"
+          ]
+         }
+        },
+        "swapped_basket": {
+         "type": "array",
+         "description": "The basket of items after swaps have been made to fit the budget.",
+         "items": {
+          "type": "object",
+          "properties": {
+           "item": {
+            "type": "string",
+            "description": "The name of the item."
+           },
+           "quantity": {
+            "type": "number",
+            "description": "The quantity of the item."
+           },
+           "price": {
+            "type": "number",
+            "description": "The price of the item."
+           }
+          },
+          "required": [
+           "item",
+           "quantity",
+           "price"
+          ]
+         }
+        },
+        "savings": {
+         "type": "number",
+         "description": "The total savings achieved by making the swaps."
+        },
+        "new_budget": {
+         "type": "number",
+         "description": "The new budget after making the swaps."
+        }
+       },
+       "required": [
+        "original_basket",
+        "swapped_basket",
+        "savings",
+        "new_budget"
+       ]
+      },
     annot: RO,
     run: (a: A) => { req(a, "budget_usd", "num"); return suggestSwaps(a as unknown as Parameters<typeof suggestSwaps>[0]); } },
   { name: "restock_schedule", title: "Restock schedule",
-    description: "Compute the next N weekly restock dates for a weekday on or after a start date.",
+    description: "Schedule N weekly restock dates starting from a given date. Use when planning future restocks; NOT when needing to build a restock list, use build_restock_list.",
     inputSchema: { type: "object", properties: {
       start_date: { type: "string", description: "Start date YYYY-MM-DD" },
       weekday: { type: "string", description: "Restock weekday, default sunday" },
       count: { type: "number", description: "How many dates, 1-12, default 4" } }, required: ["start_date"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "results": {
+         "type": "array",
+         "description": "List of restock schedule entries.",
+         "items": {
+          "type": "object",
+          "properties": {
+           "restock_date": {
+            "type": "string",
+            "description": "The scheduled restock date in YYYY-MM-DD format."
+           },
+           "weekday": {
+            "type": "string",
+            "description": "The day of the week for the restock."
+           }
+          },
+          "required": [
+           "restock_date",
+           "weekday"
+          ]
+         }
+        }
+       },
+       "required": [
+        "results"
+       ]
+      },
     annot: RO,
     run: (a: A) => { req(a, "start_date", "str"); return restockSchedule(a as unknown as Parameters<typeof restockSchedule>[0]); } },
 ];
@@ -214,7 +514,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     if (body.method === "notifications/initialized")
       return new Response(null, { status: 202, headers: base });
     if (body.method === "tools/list")
-      return json({ jsonrpc: "2.0", id: body.id, result: { tools: TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, annotations: t.annot })) } }, 200, base);
+      return json({ jsonrpc: "2.0", id: body.id, result: { tools: TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, outputSchema: t.outputSchema, annotations: t.annot })) } }, 200, base);
     if (body.method === "tools/call") {
       const tool = TOOLS.find((t) => t.name === body.params?.name);
       if (!tool) return json({ jsonrpc: "2.0", id: body.id, error: { code: -32602, message: `unknown tool '${body.params?.name}'` } }, 200, base);

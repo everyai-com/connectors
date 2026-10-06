@@ -6,7 +6,7 @@ import {
 interface Env { API_KEY?: string; OPENAI_APPS_CHALLENGE_TOKEN?: string; }
 
 const VERSION = "1.0.0";
-const RO = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+const RO = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 
 type A = Record<string, unknown>;
 const str = (v: unknown) => typeof v === "string";
@@ -18,30 +18,152 @@ const req = (a: A, k: string, t: "str" | "num") => {
 
 const TOOLS = [
   { name: "mow_schedule", title: "Mow schedule",
-    description: "Compute mow dates across a season on a weekday, every 1-4 weeks.",
+    description: "Schedule mowing dates for a season on a specific weekday. Use when planning a seasonal mowing routine. Do NOT use when needing a seasonal quote, use quote_season instead.",
     inputSchema: { type: "object", properties: {
       season_start: { type: "string", description: "Season start YYYY-MM-DD" },
       season_end: { type: "string", description: "Season end YYYY-MM-DD" },
       weekday: { type: "string", description: "Mow weekday, default saturday" },
       every_weeks: { type: "number", description: "Interval 1-4 weeks, default 1" } }, required: ["season_start", "season_end"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "results": {
+         "type": "array",
+         "description": "List of mow schedule entries.",
+         "items": {
+          "type": "object",
+          "properties": {
+           "mow_date": {
+            "type": "string",
+            "description": "The date of the scheduled mowing in YYYY-MM-DD format."
+           },
+           "weekday": {
+            "type": "string",
+            "description": "The day of the week the mowing is scheduled."
+           }
+          },
+          "required": [
+           "mow_date",
+           "weekday"
+          ]
+         }
+        }
+       },
+       "required": [
+        "results"
+       ]
+      },
     annot: RO,
     run: (a: A) => { req(a, "season_start", "str"); req(a, "season_end", "str"); return mowSchedule(a as unknown as Parameters<typeof mowSchedule>[0]); } },
   { name: "quote_season", title: "Quote season",
-    description: "Quote a mowing season: cuts times price per cut plus optional extras like fertilizing.",
+    description: "Calculate a mowing season's total cost, including optional extras. Use when estimating annual mowing expenses, NOT when scheduling individual mowing tasks (use mow_schedule).",
     inputSchema: { type: "object", properties: {
       cuts: { type: "number", description: "Number of cuts, 1-60" },
       price_per_cut: { type: "number", description: "Price per cut in USD" },
       extras: { type: "array", description: "One-off extras", items: { type: "object" } } }, required: ["cuts", "price_per_cut"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "total_cuts": {
+         "type": "number",
+         "description": "The total number of cuts in the season."
+        },
+        "total_price": {
+         "type": "number",
+         "description": "The total price for all cuts in the season."
+        },
+        "extras_cost": {
+         "type": "number",
+         "description": "The total cost of all optional extras."
+        },
+        "season_total": {
+         "type": "number",
+         "description": "The total cost of the season, including cuts and extras."
+        },
+        "extras": {
+         "type": "array",
+         "description": "The list of extras included in the quote.",
+         "items": {
+          "type": "object",
+          "properties": {
+           "name": {
+            "type": "string",
+            "description": "The name of the extra."
+           },
+           "cost": {
+            "type": "number",
+            "description": "The cost of the extra."
+           }
+          },
+          "required": [
+           "name",
+           "cost"
+          ]
+         }
+        }
+       },
+       "required": [
+        "total_cuts",
+        "total_price",
+        "extras_cost",
+        "season_total",
+        "extras"
+       ]
+      },
     annot: RO,
     run: (a: A) => { req(a, "cuts", "num"); req(a, "price_per_cut", "num"); return quoteSeason(a as unknown as Parameters<typeof quoteSeason>[0]); } },
   { name: "compare_providers", title: "Compare providers",
-    description: "Rank 2-6 lawn providers from your price, rating and visit numbers: 50% rating, 50% monthly cost.",
+    description: "Compare lawn providers by rating and cost. Use when evaluating multiple providers; avoid when needing a single quote, use quote_season.",
     inputSchema: { type: "object", properties: {
       providers: { type: "array", description: "Providers to compare", items: { type: "object" } } }, required: ["providers"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "rankedProviders": {
+         "type": "array",
+         "description": "List of providers ranked by rating and cost",
+         "items": {
+          "type": "object",
+          "properties": {
+           "providerId": {
+            "type": "string",
+            "description": "Unique identifier for the provider"
+           },
+           "providerName": {
+            "type": "string",
+            "description": "Name of the provider"
+           },
+           "rating": {
+            "type": "number",
+            "description": "Rating of the provider out of 5"
+           },
+           "monthlyCost": {
+            "type": "number",
+            "description": "Monthly cost of the provider's service"
+           },
+           "rank": {
+            "type": "integer",
+            "description": "Rank of the provider based on rating and cost"
+           }
+          },
+          "required": [
+           "providerId",
+           "providerName",
+           "rating",
+           "monthlyCost",
+           "rank"
+          ]
+         }
+        }
+       },
+       "required": [
+        "rankedProviders"
+       ]
+      },
     annot: RO,
     run: (a: A) => compareProviders(a as unknown as Parameters<typeof compareProviders>[0]) },
   { name: "build_service_request", title: "Build service request",
-    description: "Draft a service-request message to send a lawn provider: service, start date, frequency and name. Draft only, never sent.",
+    description: "Create a service request message for a lawn provider. Use when you need to draft a request for lawn services. Do NOT use when you need to schedule a one-time mowing, use mow_schedule instead.",
     inputSchema: { type: "object", properties: {
       service: { type: "string", description: "Service wanted" },
       start_date: { type: "string", description: "Start date YYYY-MM-DD" },
@@ -49,19 +171,168 @@ const TOOLS = [
       name: { type: "string", description: "Your name" },
       phone: { type: "string", description: "Callback number" },
       lot_size: { type: "string", description: "Lot size, e.g. 'quarter acre'" } }, required: ["service", "start_date", "frequency", "name"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "message": {
+         "type": "string",
+         "description": "The drafted service request message."
+        },
+        "summary": {
+         "type": "string",
+         "description": "A brief summary of the service request."
+        }
+       },
+       "required": [
+        "message",
+        "summary"
+       ]
+      },
     annot: RO,
     run: (a: A) => { req(a, "service", "str"); req(a, "start_date", "str"); req(a, "frequency", "str"); req(a, "name", "str"); return buildServiceRequest(a as unknown as Parameters<typeof buildServiceRequest>[0]); } },
   { name: "care_calendar", title: "Care calendar",
-    description: "Get the annual lawn-care calendar for cool-season (fescue) or warm-season (bermuda) grass.",
+    description: "Retrieve the annual lawn-care calendar for a specified grass type. Use when planning seasonal lawn maintenance. Avoid when needing mowing frequency details, use mow_schedule instead.",
     inputSchema: { type: "object", properties: {
       grass: { type: "string", description: "'cool' or 'warm'" } }, required: ["grass"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "january": {
+         "type": "array",
+         "description": "List of tasks for January",
+         "items": {
+          "type": "string"
+         }
+        },
+        "february": {
+         "type": "array",
+         "description": "List of tasks for February",
+         "items": {
+          "type": "string"
+         }
+        },
+        "march": {
+         "type": "array",
+         "description": "List of tasks for March",
+         "items": {
+          "type": "string"
+         }
+        },
+        "april": {
+         "type": "array",
+         "description": "List of tasks for April",
+         "items": {
+          "type": "string"
+         }
+        },
+        "may": {
+         "type": "array",
+         "description": "List of tasks for May",
+         "items": {
+          "type": "string"
+         }
+        },
+        "june": {
+         "type": "array",
+         "description": "List of tasks for June",
+         "items": {
+          "type": "string"
+         }
+        },
+        "july": {
+         "type": "array",
+         "description": "List of tasks for July",
+         "items": {
+          "type": "string"
+         }
+        },
+        "august": {
+         "type": "array",
+         "description": "List of tasks for August",
+         "items": {
+          "type": "string"
+         }
+        },
+        "september": {
+         "type": "array",
+         "description": "List of tasks for September",
+         "items": {
+          "type": "string"
+         }
+        },
+        "october": {
+         "type": "array",
+         "description": "List of tasks for October",
+         "items": {
+          "type": "string"
+         }
+        },
+        "november": {
+         "type": "array",
+         "description": "List of tasks for November",
+         "items": {
+          "type": "string"
+         }
+        },
+        "december": {
+         "type": "array",
+         "description": "List of tasks for December",
+         "items": {
+          "type": "string"
+         }
+        }
+       },
+       "required": [
+        "january",
+        "february",
+        "march",
+        "april",
+        "may",
+        "june",
+        "july",
+        "august",
+        "september",
+        "october",
+        "november",
+        "december"
+       ]
+      },
     annot: RO,
     run: (a: A) => { req(a, "grass", "str"); return careCalendar(a as unknown as Parameters<typeof careCalendar>[0]); } },
   { name: "mow_reminders", title: "Mow reminders",
-    description: "Compute reminder datetimes before each mow date, assuming a 9am mow.",
+    description: "Schedule reminders before each mow date. Use when you need to notify customers in advance. Do NOT use when you need to build a service request, use build_service_request.",
     inputSchema: { type: "object", properties: {
       mow_dates: { type: "array", description: "Mow dates YYYY-MM-DD, up to 12", items: { type: "string" } },
       lead_hours: { type: "array", description: "Lead times in hours, default [24, 2]", items: { type: "number" } } }, required: ["mow_dates"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "reminders": {
+         "type": "array",
+         "description": "List of reminder datetimes",
+         "items": {
+          "type": "object",
+          "properties": {
+           "mow_date": {
+            "type": "string",
+            "description": "The mow date in YYYY-MM-DD format"
+           },
+           "reminder_datetime": {
+            "type": "string",
+            "description": "The reminder datetime in ISO 8601 format"
+           }
+          },
+          "required": [
+           "mow_date",
+           "reminder_datetime"
+          ]
+         }
+        }
+       },
+       "required": [
+        "reminders"
+       ]
+      },
     annot: RO,
     run: (a: A) => mowReminders(a as unknown as Parameters<typeof mowReminders>[0]) },
 ];
@@ -220,7 +491,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     if (body.method === "notifications/initialized")
       return new Response(null, { status: 202, headers: base });
     if (body.method === "tools/list")
-      return json({ jsonrpc: "2.0", id: body.id, result: { tools: TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, annotations: t.annot })) } }, 200, base);
+      return json({ jsonrpc: "2.0", id: body.id, result: { tools: TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, outputSchema: t.outputSchema, annotations: t.annot })) } }, 200, base);
     if (body.method === "ping")
       return json({ jsonrpc: "2.0", id: body.id, result: {} }, 200, base);
     if (body.method === "tools/call") {

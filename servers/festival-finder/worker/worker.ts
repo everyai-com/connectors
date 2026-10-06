@@ -16,23 +16,180 @@ function num(a: Record<string, unknown>, k: string): number {
   return v;
 }
 
-const ANNOT = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+const ANNOT = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const TOOLS = [
   { name: "list_festivals", title: "List festivals",
-    description: "All computed Hindu festivals + sankrantis for a year (2020-2040): name, date, rule. Approximate.",
-    inputSchema: { type: "object", properties: { year: { type: "number" } }, required: ["year"], additionalProperties: false },
+    description: "Retrieve all Hindu festivals and sankrantis for a specific year. Use when needing a yearly overview; NOT for precise dates or future years beyond 2040. For upcoming festivals, use next_festival.",
+    inputSchema: { type: "object", properties: { year: { description: "The year for which to retrieve the festivals, as a 4-digit number, e.g. 2024", type: "number" } }, required: ["year"], additionalProperties: false },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "results": {
+         "type": "array",
+         "description": "List of list festivals entries.",
+         "items": {
+          "type": "object",
+          "properties": {
+           "name": {
+            "type": "string",
+            "description": "The name of the festival or sankranti."
+           },
+           "date": {
+            "type": "string",
+            "format": "date",
+            "description": "The approximate date of the festival or sankranti in YYYY-MM-DD format."
+           },
+           "rule": {
+            "type": "string",
+            "description": "The rule or calculation method used to determine the date of the festival or sankranti."
+           }
+          },
+          "required": [
+           "name",
+           "date",
+           "rule"
+          ]
+         }
+        }
+       },
+       "required": [
+        "results"
+       ]
+      },
     run: (a: Record<string, unknown>) => festivalsInYear(num(a, "year")) },
   { name: "next_festival", title: "Next festival",
-    description: "Next festival on or after a date (YYYY-MM-DD).",
-    inputSchema: { type: "object", properties: { from_date: { type: "string" } }, required: ["from_date"], additionalProperties: false },
+    description: "Retrieve the next festival on or after a given date. Use when you need the upcoming festival. Do NOT use for a list of festivals; use list_festivals instead.",
+    inputSchema: { type: "object", properties: { from_date: { description: "Date YYYY-MM-DD to search for the next festival on or after", type: "string" } }, required: ["from_date"], additionalProperties: false },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "name": {
+         "type": "string",
+         "description": "The name of the festival."
+        },
+        "date": {
+         "type": "string",
+         "format": "date",
+         "description": "The date of the festival."
+        },
+        "location": {
+         "type": "string",
+         "description": "The location where the festival is held."
+        },
+        "description": {
+         "type": "string",
+         "description": "A brief description of the festival."
+        }
+       },
+       "required": [
+        "name",
+        "date",
+        "location"
+       ]
+      },
     run: (a: Record<string, unknown>) => nextFestival(str(a, "from_date")) },
   { name: "festival_details", title: "Festival details",
-    description: "Date + rule explanation for one festival by name in a year.",
-    inputSchema: { type: "object", properties: { name: { type: "string" }, year: { type: "number" } }, required: ["name", "year"], additionalProperties: false },
+    description: "Retrieve detailed information about a specific festival in a given year. Use when you need specific details about a festival. Do NOT use for listing multiple festivals; use list_festivals instead.",
+    inputSchema: { type: "object", properties: { name: { description: "The name for this request.", type: "string" }, year: { description: "The year as a number.", type: "number" } }, required: ["name", "year"], additionalProperties: false },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "name": {
+         "type": "string",
+         "description": "The name of the festival."
+        },
+        "year": {
+         "type": "number",
+         "description": "The year in which the festival occurs."
+        },
+        "date": {
+         "type": "string",
+         "format": "date",
+         "description": "The specific date when the festival occurs."
+        },
+        "ruleExplanation": {
+         "type": "string",
+         "description": "The explanation of the rule determining the festival's date."
+        },
+        "significance": {
+         "type": "string",
+         "description": "The cultural or religious significance of the festival."
+        },
+        "traditions": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         },
+         "description": "A list of traditional activities or customs associated with the festival."
+        },
+        "location": {
+         "type": "string",
+         "description": "The primary location where the festival is celebrated."
+        },
+        "duration": {
+         "type": "string",
+         "description": "The duration of the festival (e.g., one day, multiple days)."
+        }
+       },
+       "required": [
+        "name",
+        "year",
+        "date",
+        "ruleExplanation"
+       ]
+      },
     run: (a: Record<string, unknown>) => festivalDetails(str(a, "name"), num(a, "year")) },
   { name: "festivals_in_month", title: "Festivals in month",
-    description: "Festivals in a calendar month (1-12) of a year.",
-    inputSchema: { type: "object", properties: { year: { type: "number" }, month: { type: "number" } }, required: ["year", "month"], additionalProperties: false },
+    description: "Retrieve festivals in a specific month and year. Use when you need a list of festivals for a particular month; NOT for upcoming festivals. Use next_festival instead.",
+    inputSchema: { type: "object", properties: { year: { description: "The year as a number.", type: "number" }, month: { description: "The month as a number.", type: "number" } }, required: ["year", "month"], additionalProperties: false },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "month": {
+         "type": "number",
+         "description": "The month for which the festivals are retrieved."
+        },
+        "year": {
+         "type": "number",
+         "description": "The year for which the festivals are retrieved."
+        },
+        "festivals": {
+         "type": "array",
+         "description": "List of festivals occurring in the specified month and year.",
+         "items": {
+          "type": "object",
+          "properties": {
+           "name": {
+            "type": "string",
+            "description": "The name of the festival."
+           },
+           "date": {
+            "type": "string",
+            "format": "date",
+            "description": "The date on which the festival occurs."
+           },
+           "location": {
+            "type": "string",
+            "description": "The location where the festival is held."
+           },
+           "details": {
+            "type": "string",
+            "description": "Additional details about the festival."
+           }
+          },
+          "required": [
+           "name",
+           "date"
+          ]
+         }
+        }
+       },
+       "required": [
+        "month",
+        "year",
+        "festivals"
+       ]
+      },
     run: (a: Record<string, unknown>) => {
       const year = num(a, "year"), month = num(a, "month");
       if (month < 1 || month > 12) throw new Error(`month must be 1-12, got '${month}'`);
@@ -206,7 +363,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
       ttlMs: 3600000,
       cacheScope: "public",
     } }, 200, cors(request));
-    if (body.method === "tools/list") return json({ jsonrpc: "2.0", id, result: { tools: TOOLS.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema, annotations: { title: t.title, ...ANNOT } })) } }, 200, cors(request));
+    if (body.method === "tools/list") return json({ jsonrpc: "2.0", id, result: { tools: TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, outputSchema: t.outputSchema, annotations: { ...ANNOT } })) } }, 200, cors(request));
     if (body.method === "tools/call") {
       const tool = TOOLS.find((t) => t.name === body.params?.name);
       if (!tool) return json({ jsonrpc: "2.0", id, error: { code: -32602, message: `unknown tool '${body.params?.name}'` } }, 200, cors(request));

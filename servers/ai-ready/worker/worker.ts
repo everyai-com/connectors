@@ -10,7 +10,7 @@ import {
 interface Env { API_KEY?: string; OPENAI_APPS_CHALLENGE_TOKEN?: string; }
 const VERSION = "1.0.0";
 const MAX_BODY = 1024 * 1024;
-const ANNOT = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+const ANNOT = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 
 type A = Record<string, unknown>;
 const req = (a: A, k: string, t: string): never | unknown => {
@@ -21,51 +21,284 @@ const req = (a: A, k: string, t: string): never | unknown => {
 
 const TOOLS = [
   { name: "check_ai_readiness", title: "Check AI readiness",
-    description: "Scan a domain for AI discoverability: which AI crawlers robots.txt blocks or allows (GPTBot, OAI-SearchBot, ClaudeBot, PerplexityBot...), llms.txt presence, sitemap, schema.org data, meta and Content Signals. Fetches only /robots.txt, /llms.txt, /sitemap.xml and the homepage over HTTPS.",
+    description: "Scan a domain for AI discoverability. Use when evaluating AI crawler access; NOT when assessing general web crawler policies, use crawler_policy_guide.",
     inputSchema: { type: "object", properties: { domain: { type: "string", description: "Domain or URL, e.g. example.com" } }, required: ["domain"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "domain": {
+         "type": "string",
+         "description": "The domain or URL that was scanned."
+        },
+        "ai_crawler_access": {
+         "type": "object",
+         "description": "Access permissions for various AI crawlers.",
+         "properties": {
+          "GPTBot": {
+           "type": "string",
+           "description": "Access status for GPTBot (allowed, disallowed, or unknown)."
+          },
+          "OAI-SearchBot": {
+           "type": "string",
+           "description": "Access status for OAI-SearchBot (allowed, disallowed, or unknown)."
+          },
+          "ClaudeBot": {
+           "type": "string",
+           "description": "Access status for ClaudeBot (allowed, disallowed, or unknown)."
+          },
+          "PerplexityBot": {
+           "type": "string",
+           "description": "Access status for PerplexityBot (allowed, disallowed, or unknown)."
+          }
+         },
+         "required": [
+          "GPTBot",
+          "OAI-SearchBot",
+          "ClaudeBot",
+          "PerplexityBot"
+         ]
+        },
+        "llms_txt_presence": {
+         "type": "boolean",
+         "description": "Indicates whether an llms.txt file is present."
+        },
+        "sitemap_presence": {
+         "type": "boolean",
+         "description": "Indicates whether a sitemap.xml file is present."
+        },
+        "schema_org_data": {
+         "type": "object",
+         "description": "Schema.org structured data found on the homepage.",
+         "properties": {
+          "types": {
+           "type": "array",
+           "description": "Array of schema.org types found.",
+           "items": {
+            "type": "string"
+           }
+          },
+          "properties": {
+           "type": "object",
+           "description": "Schema.org properties and their values.",
+           "additionalProperties": {
+            "type": "string"
+           }
+          }
+         },
+         "required": [
+          "types",
+          "properties"
+         ]
+        },
+        "meta_tags": {
+         "type": "array",
+         "description": "Meta tags found on the homepage.",
+         "items": {
+          "type": "object",
+          "properties": {
+           "name": {
+            "type": "string",
+            "description": "The name of the meta tag."
+           },
+           "content": {
+            "type": "string",
+            "description": "The content of the meta tag."
+           }
+          },
+          "required": [
+           "name",
+           "content"
+          ]
+         }
+        },
+        "content_signals": {
+         "type": "object",
+         "description": "Content signals detected on the homepage.",
+         "properties": {
+          "word_count": {
+           "type": "integer",
+           "description": "The number of words on the homepage."
+          },
+          "heading_structure": {
+           "type": "array",
+           "description": "The structure of headings (H1, H2, etc.) on the homepage.",
+           "items": {
+            "type": "string"
+           }
+          },
+          "image_alt_text": {
+           "type": "array",
+           "description": "Alt text for images on the homepage.",
+           "items": {
+            "type": "string"
+           }
+          }
+         },
+         "required": [
+          "word_count",
+          "heading_structure",
+          "image_alt_text"
+         ]
+        }
+       },
+       "required": [
+        "domain",
+        "ai_crawler_access",
+        "llms_txt_presence",
+        "sitemap_presence",
+        "schema_org_data",
+        "meta_tags",
+        "content_signals"
+       ]
+      },
     run: async (a: A) => {
       req(a, "domain", "str");
       return checkAiReadiness(a as unknown as Parameters<typeof checkAiReadiness>[0]);
     } },
   { name: "crawler_policy_guide", title: "Crawler policy guide",
-    description: "Reference table of AI crawlers (owner, purpose, whether they drive AI visibility or training) with rules of thumb for allowing or blocking each.",
+    description: "Retrieve AI crawler policy guide. Use when you need to decide whether to allow or block an AI crawler. Do NOT use when you need to check AI readiness (check_ai_readiness).",
     inputSchema: { type: "object", properties: {}, required: [] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "crawlers": {
+         "type": "array",
+         "description": "List of AI crawlers with their respective policies.",
+         "items": {
+          "type": "object",
+          "properties": {
+           "owner": {
+            "type": "string",
+            "description": "The owner or organization responsible for the AI crawler."
+           },
+           "purpose": {
+            "type": "string",
+            "description": "The intended purpose of the AI crawler."
+           },
+           "drives_ai_visibility": {
+            "type": "boolean",
+            "description": "Indicates whether the crawler drives AI visibility."
+           },
+           "drives_ai_training": {
+            "type": "boolean",
+            "description": "Indicates whether the crawler drives AI training."
+           },
+           "allow": {
+            "type": "boolean",
+            "description": "Rule of thumb for allowing the crawler."
+           },
+           "block": {
+            "type": "boolean",
+            "description": "Rule of thumb for blocking the crawler."
+           }
+          },
+          "required": [
+           "owner",
+           "purpose",
+           "drives_ai_visibility",
+           "drives_ai_training",
+           "allow",
+           "block"
+          ]
+         }
+        }
+       },
+       "required": [
+        "crawlers"
+       ]
+      },
     run: () => crawlerPolicyGuide() },
   { name: "robots_txt_for_ai", title: "Generate robots.txt for AI",
-    description: "Generate robots.txt rules for a chosen AI policy (max visibility, search-only, block training, block all AI), optionally with Content-Signal lines and a sitemap reference.",
+    description: "Generate robots.txt rules for AI policy and scope. Use when needing AI-specific directives; NOT for general web crawlers, use crawler_policy_guide instead.",
     inputSchema: { type: "object", properties: {
-      policy: { type: "string", enum: ["max_visibility", "search_only", "block_training", "block_all_ai"] },
-      sitemap_url: { type: "string" },
-      content_signals: { type: "boolean" },
+      policy: { description: "AI policy rules as a string, e.g. 'Disallow: /private/'", type: "string", enum: ["max_visibility", "search_only", "block_training", "block_all_ai"] },
+      sitemap_url: { description: "URL of the sitemap, e.g. 'https://example.com/sitemap.xml'", type: "string" },
+      content_signals: { description: "True if content signals should be included, False otherwise", type: "boolean" },
     }, required: ["policy"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "robots_txt_content": {
+         "type": "string",
+         "description": "The generated robots.txt content based on the chosen AI policy."
+        },
+        "content_signal_lines": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         },
+         "description": "Optional Content-Signal lines included in the robots.txt if requested."
+        },
+        "sitemap_reference": {
+         "type": "string",
+         "description": "The sitemap URL reference included in the robots.txt if provided."
+        }
+       },
+       "required": [
+        "robots_txt_content"
+       ]
+      },
     run: (a: A) => {
       req(a, "policy", "str");
       return robotsTxtForAi(a as unknown as Parameters<typeof robotsTxtForAi>[0]);
     } },
   { name: "llms_txt_draft", title: "Draft llms.txt",
-    description: "Draft a starter llms.txt from your business name, one-line description, key pages and contact so AI agents get a curated summary of your site.",
+    description: "Generate an llms.txt file from your business details and key pages. Use when you need a quick, AI-friendly site summary. Avoid if you need a robots.txt file; use robots_txt_for_ai instead.",
     inputSchema: { type: "object", properties: {
-      business_name: { type: "string" },
-      description: { type: "string" },
-      key_pages: { type: "array", items: { type: "object", properties: { title: { type: "string" }, url: { type: "string" }, note: { type: "string" } }, required: ["title", "url"] } },
-      contact_email: { type: "string" },
+      business_name: { description: "The name of your business", type: "string" },
+      description: { description: "A brief description of your business", type: "string" },
+      key_pages: { description: "Array of strings; URLs of key pages on your website", type: "array", items: { type: "object", properties: { title: { type: "string" }, url: { type: "string" }, note: { type: "string" } }, required: ["title", "url"] } },
+      contact_email: { description: "Your business's contact email address", type: "string" },
     }, required: ["business_name", "description"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "llms_txt_content": {
+         "type": "string",
+         "description": "The generated llms.txt content as a single string."
+        },
+        "status": {
+         "type": "string",
+         "description": "The status of the generation process, e.g., 'success' or 'error'."
+        },
+        "message": {
+         "type": "string",
+         "description": "A message providing additional information about the status."
+        }
+       },
+       "required": [
+        "llms_txt_content",
+        "status"
+       ]
+      },
     run: (a: A) => {
       req(a, "business_name", "str"); req(a, "description", "str");
       return llmsTxtDraft(a as unknown as Parameters<typeof llmsTxtDraft>[0]);
     } },
   { name: "schema_jsonld_sample", title: "Generate JSON-LD sample",
-    description: "Generate a schema.org JSON-LD snippet (Organization, LocalBusiness, Product or FAQ) to paste into your page head for AI identification.",
+    description: "Generate a JSON-LD snippet for SEO. Use when you need structured data for search engines. Avoid when you need to check AI readiness, use check_ai_readiness instead.",
     inputSchema: { type: "object", properties: {
-      type: { type: "string", enum: ["organization", "local_business", "product", "faq"] },
-      name: { type: "string" },
-      url: { type: "string" },
-      description: { type: "string" },
-      telephone: { type: "string" },
-      address: { type: "string" },
-      price: { type: "string" },
-      questions: { type: "array", items: { type: "object", properties: { question: { type: "string" }, answer: { type: "string" } }, required: ["question", "answer"] } },
+      type: { description: "The type for this request.", type: "string", enum: ["organization", "local_business", "product", "faq"] },
+      name: { description: "The name for this request.", type: "string" },
+      url: { description: "Full url URL including https://.", type: "string" },
+      description: { description: "The description for this request.", type: "string" },
+      telephone: { description: "The telephone phone number.", type: "string" },
+      address: { description: "The address for this request.", type: "string" },
+      price: { description: "The price for this request.", type: "string" },
+      questions: { description: "List of questions values.", type: "array", items: { type: "object", properties: { question: { type: "string" }, answer: { type: "string" } }, required: ["question", "answer"] } },
     }, required: ["type", "name", "url"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "jsonld": {
+         "type": "string",
+         "description": "The generated JSON-LD snippet based on the provided input."
+        }
+       },
+       "required": [
+        "jsonld"
+       ]
+      },
     run: (a: A) => {
       req(a, "type", "str"); req(a, "name", "str"); req(a, "url", "str");
       return schemaJsonldSample(a as unknown as Parameters<typeof schemaJsonldSample>[0]);
@@ -237,7 +470,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
       ttlMs: 3600000,
       cacheScope: "public",
     } }, 200, cors(request));
-    if (body.method === "tools/list") return json({ jsonrpc: "2.0", id, result: { tools: TOOLS.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema, annotations: { title: t.title, ...ANNOT } })) } }, 200, cors(request));
+    if (body.method === "tools/list") return json({ jsonrpc: "2.0", id, result: { tools: TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, outputSchema: t.outputSchema, annotations: { ...ANNOT } })) } }, 200, cors(request));
     if (body.method === "tools/call") {
       const tool = TOOLS.find((t) => t.name === body.params?.name);
       if (!tool) return json({ jsonrpc: "2.0", id, error: { code: -32602, message: `unknown tool '${body.params?.name}'` } }, 200, cors(request));

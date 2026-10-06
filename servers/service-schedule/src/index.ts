@@ -41,7 +41,7 @@ function buildServer(): McpServer {
 
   server.tool(
     "due_services",
-    "Compute which scheduled maintenance services (oil, tires, brakes, filters, fluids, plugs, transmission, battery) are due, soon or ok from the current odometer and optional per-service history. Returns km and month distances to each due point.",
+    "Calculate vehicle maintenance service statuses from odometer. Use when planning routine maintenance, NOT when estimating service costs (use service_cost_estimate).",
     {
       odometer: z.number().describe("Current odometer reading"),
       unit: z.enum(["km", "mi"]).optional().describe("Unit of the odometer values, default km"),
@@ -49,42 +49,42 @@ function buildServer(): McpServer {
       km_per_month: z.number().optional().describe("Average km driven per month (100-10000); used to phrase the next service in months"),
       last_service: z.array(LastService).optional().describe("Optional per-service history from the owner"),
     },
-    { title: "Due services", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Due services", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => dueServices(a)),
   );
 
   server.tool(
     "service_cost_estimate",
-    "Estimate typical US parts-and-labor price ranges for a chosen list of maintenance services at a chosen shop tier (economy, mid or luxury). Returns per-service ranges and a total range.",
+    "Estimate the cost of maintenance services at a specific shop tier. Use when needing a price range for multiple services. Do NOT use when needing a list of due services; use due_services instead.",
     {
       services: z.array(z.string()).describe("Service ids to price, e.g. ['oil_change', 'brake_inspection']"),
       tier: z.enum(["economy", "mid", "luxury"]).optional().describe("Shop tier, default mid"),
     },
-    { title: "Service cost estimate", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Service cost estimate", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => serviceCostEstimate(a)),
   );
 
   server.tool(
     "service_timeline",
-    "Project the next 12 months of driving from a monthly km rate and list which maintenance services fall due in each month, with the projected odometer at that month.",
+    "Project the next 12 months of driving from a monthly km rate and list which maintenance services fall due in each month. Use when planning long-term maintenance, NOT for immediate service needs; use due_services instead.",
     {
       odometer: z.number().describe("Current odometer reading"),
       unit: z.enum(["km", "mi"]).optional().describe("Unit of the odometer values, default km"),
       km_per_month: z.number().describe("Average km driven per month (100-10000)"),
       months_since_last_oil: z.number().optional().describe("Months since the last oil change; time baseline when no other history is given"),
     },
-    { title: "Service timeline", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Service timeline", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => serviceTimeline(a)),
   );
 
   server.tool(
     "seasonal_checklist",
-    "Seasonal car checklist for spring, summer, fall or winter, adjusted for a hot, cold or mixed climate. Groups practical preventive checks by area (battery, tires, fluids, visibility, safety kit).",
+    "Generate a seasonal car maintenance checklist. Use when planning routine maintenance; avoid when estimating service costs (use service_cost_estimate).",
     {
       season: z.enum(["spring", "summer", "fall", "winter"]).describe("Season to plan for"),
       climate: z.enum(["hot", "cold", "mixed"]).optional().describe("Local climate, default mixed"),
     },
-    { title: "Seasonal checklist", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Seasonal checklist", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => seasonalChecklist(a)),
   );
 

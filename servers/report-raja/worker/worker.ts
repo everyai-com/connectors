@@ -4,7 +4,7 @@ import { TEMPLATES, createWeeklyReport, formatReportPlain, weekBounds } from "..
 interface Env { API_KEY?: string; OPENAI_APPS_CHALLENGE_TOKEN?: string; }
 const VERSION = "1.0.0";
 const MAX_BODY = 1024 * 1024;
-const ANNOT = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+const ANNOT = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 
 type A = Record<string, unknown>;
 const req = (a: A, k: string, t: string): never | unknown => {
@@ -17,26 +17,192 @@ const req = (a: A, k: string, t: string): never | unknown => {
 const opt = (a: A, k: string) => a[k] as never;
 const full = (a: A) => ({ client_name: req(a, "client_name", "str") as string, week_start: req(a, "week_start", "str") as string, accomplishments: req(a, "accomplishments", "arr") as string[], hours_logged: opt(a, "hours_logged"), blockers: opt(a, "blockers"), next_week: opt(a, "next_week") });
 const REPORT_PROPS = {
-  client_name: { type: "string" }, week_start: { type: "string" }, accomplishments: { type: "array", items: { type: "string" } },
-  hours_logged: { type: "number" }, blockers: { type: "array", items: { type: "string" } }, next_week: { type: "array", items: { type: "string" } },
+  client_name: { description: "The name of the client for whom the report is being generated", type: "string" }, week_start: { description: "The start date of the week in YYYY-MM-DD format", type: "string" }, accomplishments: { description: "A list of accomplishments achieved during the week", type: "array", items: { type: "string" } },
+  hours_logged: { description: "The total number of hours worked during the week", type: "number" }, blockers: { description: "A list of issues or obstacles encountered during the week", type: "array", items: { type: "string" } }, next_week: { description: "A list of tasks planned for the next week", type: "array", items: { type: "string" } },
 };
 
 const TOOLS = [
   { name: "create_weekly_report", title: "Create weekly report",
-    description: "Build a weekly client report from accomplishments, hours, blockers and next-week plans. Nothing stored.",
+    description: "Generate a weekly report for a client. Use when you need a formatted report. Do NOT use when you need to adjust the report's text; use render_report_text instead.",
     inputSchema: { type: "object", properties: REPORT_PROPS, required: ["client_name", "week_start", "accomplishments"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "report_id": {
+         "type": "string",
+         "description": "Unique identifier for the generated report."
+        },
+        "client_name": {
+         "type": "string",
+         "description": "The name of the client for whom the report is generated."
+        },
+        "week_start": {
+         "type": "string",
+         "description": "The start date of the week for which the report is generated."
+        },
+        "accomplishments": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         },
+         "description": "List of accomplishments for the week."
+        },
+        "hours_logged": {
+         "type": "number",
+         "description": "Total hours logged for the week."
+        },
+        "blockers": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         },
+         "description": "List of blockers encountered during the week."
+        },
+        "next_week": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         },
+         "description": "List of plans for the next week."
+        },
+        "report_text": {
+         "type": "string",
+         "description": "The formatted text of the weekly report."
+        }
+       },
+       "required": [
+        "report_id",
+        "client_name",
+        "week_start",
+        "accomplishments",
+        "report_text"
+       ]
+      },
     run: (a: A) => createWeeklyReport(full(a)) },
   { name: "render_report_text", title: "Render report text",
-    description: "Render a weekly report as plain text (same inputs as create_weekly_report).",
+    description: "Generate a weekly report as plain text. Use when you need a simple text output for email or messaging. Do NOT use when you need a formatted document; use report_templates instead.",
     inputSchema: { type: "object", properties: REPORT_PROPS, required: ["client_name", "week_start", "accomplishments"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "report_text": {
+         "type": "string",
+         "description": "The generated plain text report."
+        },
+        "client_name": {
+         "type": "string",
+         "description": "The name of the client for whom the report is generated."
+        },
+        "week_start": {
+         "type": "string",
+         "description": "The start date of the week covered by the report."
+        },
+        "accomplishments": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         },
+         "description": "The list of accomplishments for the week."
+        },
+        "hours_logged": {
+         "type": "number",
+         "description": "The total hours logged for the week."
+        },
+        "blockers": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         },
+         "description": "The list of blockers encountered during the week."
+        },
+        "next_week": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         },
+         "description": "The list of tasks planned for the next week."
+        }
+       },
+       "required": [
+        "report_text",
+        "client_name",
+        "week_start",
+        "accomplishments"
+       ]
+      },
     run: (a: A) => ({ text: formatReportPlain(createWeeklyReport(full(a))) }) },
   { name: "report_templates", title: "Report templates",
-    description: "List built-in report templates (freelancer, agency, standup).",
+    description: "List all built-in report templates. Use when you need to see available templates, NOT when you need to create a custom report (use create_weekly_report).",
     inputSchema: { type: "object", properties: {} },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "results": {
+         "type": "array",
+         "description": "List of report templates entries.",
+         "items": {
+          "type": "object",
+          "properties": {
+           "template_id": {
+            "type": "string",
+            "description": "Unique identifier for the report template"
+           },
+           "template_name": {
+            "type": "string",
+            "description": "Name of the report template"
+           },
+           "template_type": {
+            "type": "string",
+            "description": "Type of the report template (e.g., freelancer, agency, standup)"
+           },
+           "description": {
+            "type": "string",
+            "description": "Brief description of the report template"
+           },
+           "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Timestamp when the template was created"
+           },
+           "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Timestamp when the template was last updated"
+           }
+          },
+          "required": [
+           "template_id",
+           "template_name",
+           "template_type"
+          ]
+         }
+        }
+       },
+       "required": [
+        "results"
+       ]
+      },
     run: () => ({ templates: TEMPLATES }) },
   { name: "week_bounds", title: "Week bounds",
-    description: "Monday..Sunday bounds for the week containing a date (YYYY-MM-DD).",
-    inputSchema: { type: "object", properties: { date: { type: "string" } }, required: ["date"] },
+    description: "Calculate week bounds for a given date. Use when you need to know the start and end of a week for a specific date. Do NOT use when you need to generate a report, use create_weekly_report.",
+    inputSchema: { type: "object", properties: { date: { description: "The date in YYYY-MM-DD format.", type: "string" } }, required: ["date"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "startDate": {
+         "type": "string",
+         "description": "The start date of the week (Monday) in YYYY-MM-DD format."
+        },
+        "endDate": {
+         "type": "string",
+         "description": "The end date of the week (Sunday) in YYYY-MM-DD format."
+        }
+       },
+       "required": [
+        "startDate",
+        "endDate"
+       ]
+      },
     run: (a: A) => weekBounds(req(a, "date", "str") as string) },
 ];
 
@@ -207,7 +373,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
       ttlMs: 3600000,
       cacheScope: "public",
     } }, 200, cors(request));
-    if (body.method === "tools/list") return json({ jsonrpc: "2.0", id, result: { tools: TOOLS.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema, annotations: { title: t.title, ...ANNOT } })) } }, 200, cors(request));
+    if (body.method === "tools/list") return json({ jsonrpc: "2.0", id, result: { tools: TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, outputSchema: t.outputSchema, annotations: { ...ANNOT } })) } }, 200, cors(request));
     if (body.method === "tools/call") {
       const tool = TOOLS.find((t) => t.name === body.params?.name);
       if (!tool) return json({ jsonrpc: "2.0", id, error: { code: -32602, message: `unknown tool '${body.params?.name}'` } }, 200, cors(request));

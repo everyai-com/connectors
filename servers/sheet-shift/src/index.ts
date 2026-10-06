@@ -8,7 +8,7 @@ import { cleanTable, columnStats, convertTable, splitColumn } from "./sheet.js";
 const PORT = Number(process.env.PORT ?? 3005);
 const API_KEY = process.env.API_KEY ?? "";
 const CHALLENGE = process.env.OPENAI_APPS_CHALLENGE_TOKEN ?? "";
-const RO = { readOnlyHint: true, destructiveHint: false, openWorldHint: false } as const;
+const RO = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const;
 
 function buildServer(): McpServer {
   const server = new McpServer(
@@ -19,24 +19,24 @@ function buildServer(): McpServer {
     try { return { content: [{ type: "text" as const, text: JSON.stringify(fn()) }] }; }
     catch (e) { return { content: [{ type: "text" as const, text: `ERROR ${e instanceof Error ? e.message : "bad input"}` }], isError: true }; }
   };
-  server.tool("convert_table", "Convert a table string between CSV, TSV, JSON and Markdown.",
+  server.tool("convert_table", "Convert a table string between CSV, TSV, JSON and Markdown. Use when you need to change the format of a table. Do NOT use when you need to clean the table, use clean_table instead.",
     { data: z.string(), from_format: z.string().describe("csv, tsv, json"), to_format: z.string().describe("csv, tsv, json, markdown") },
-    { title: "Convert table", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Convert table", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => convertTable(a.data, a.from_format, a.to_format))());
-  server.tool("clean_table", "Trim cells, drop empty rows, dedupe rows in a table string.",
+  server.tool("clean_table", "Clean a table string by trimming cells, dropping empty rows, and deduplicating rows. Use when you need to prepare data for analysis; NOT when you need to convert table formats, use convert_table.",
     { data: z.string(), format: z.string().describe("csv, tsv, json").optional(),
       trim: z.boolean().optional(), drop_empty_rows: z.boolean().optional(), dedupe: z.boolean().optional() },
-    { title: "Clean table", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Clean table", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => cleanTable(a.data, a.format ?? "csv", { trim: a.trim, drop_empty_rows: a.drop_empty_rows, dedupe: a.dedupe }))());
-  server.tool("column_stats", "Sum/avg/min/max/count/distinct over one column (name or 0-based index).",
+  server.tool("column_stats", "Calculate sum/avg/min/max/count/distinct over one column. Use when needing quick column statistics; avoid when needing to convert table formats, use convert_table.",
     { data: z.string(), format: z.string().describe("csv, tsv, json").optional(),
       column: z.string(), op: z.string().describe("sum, avg, min, max, count, distinct") },
-    { title: "Column stats", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Column stats", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => columnStats(a.data, a.format ?? "csv", a.column, a.op))());
-  server.tool("split_column", "Split one column on a delimiter into new columns.",
+  server.tool("split_column", "Split a column into new columns on a delimiter. Use when you need to break down a single column into multiple columns. Do NOT use when you need to convert the entire table format; use convert_table instead.",
     { data: z.string(), format: z.string().describe("csv, tsv, json").optional(),
       column: z.string(), delimiter: z.string(), new_names: z.array(z.string()).optional() },
-    { title: "Split column", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Split column", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => splitColumn(a.data, a.format ?? "csv", a.column, a.delimiter, a.new_names))());
   return server;
 }

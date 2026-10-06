@@ -58,18 +58,18 @@ function buildServer(): McpServer {
 
   server.tool(
     "match_kits",
-    "Rank meal kits against a diet/budget profile: matches with scores, rejections with reasons, and a pick.",
+    "Rank meal kits against a diet/budget profile. Use when you need to evaluate multiple kits; NOT when planning a weekly meal schedule (use plan_week).",
     {
       profile: Profile.describe("Your diet profile"),
       kits: z.array(Kit).describe("Kit catalog to match"),
     },
-    { title: "Match kits", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Match kits", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => matchKits(a)),
   );
 
   server.tool(
     "plan_week",
-    "Plan a week of kit meals across days, flagging days short on servings.",
+    "Plan a week of kit meals across days, flagging days short on servings. Use when you need to schedule meals for a week. Do NOT use when you need to compare kit tiers, use compare_kit_tiers.",
     {
       kit_meals: z.array(z.object({
         name: z.string().describe("Meal name"),
@@ -78,26 +78,26 @@ function buildServer(): McpServer {
       days: z.number().optional().describe("Days to plan, 1-14, default 7"),
       servings_needed: z.number().optional().describe("Servings needed per day, 1-12, default 2"),
     },
-    { title: "Plan week", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Plan week", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => planWeek(a)),
   );
 
   server.tool(
     "quote_week",
-    "Quote a week of meal kits: per-meal math, food total, shipping and monthly estimate.",
+    "Calculate the cost of a week of meal kits. Use when estimating weekly meal kit costs, not for comparing meal kit tiers (use compare_kit_tiers).",
     {
       price_per_serving: z.number().describe("Price per serving in USD"),
       meals_per_week: z.number().describe("Meals per week, 1-21"),
       servings: z.number().describe("Servings per meal, 1-12"),
       shipping: z.number().optional().describe("Weekly shipping in USD, default 0"),
     },
-    { title: "Quote week", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Quote week", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => quoteWeek(a)),
   );
 
   server.tool(
     "compare_kit_tiers",
-    "Rank 2-6 kit plans from your price and rating numbers: 60% rating, 40% price.",
+    "Rank 2-6 kit plans by rating and price. Use when comparing multiple meal kit plans. Not for single plan analysis; use quote_week instead.",
     {
       plans: z.array(z.object({
         name: z.string().describe("Plan name"),
@@ -106,13 +106,13 @@ function buildServer(): McpServer {
         meals: z.number().describe("Meals per week"),
       })).describe("Plans to compare"),
     },
-    { title: "Compare kit tiers", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Compare kit tiers", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => compareKitTiers(a)),
   );
 
   server.tool(
     "suggest_swaps",
-    "Suggest swaps for meals clashing with avoids, naming a clean swap from the same list.",
+    "Suggest meal swaps for conflicting ingredients, use when planning meals with dietary restrictions. Do NOT use when planning meals without restrictions, use plan_week instead.",
     {
       meals: z.array(z.object({
         name: z.string().describe("Meal name"),
@@ -120,19 +120,19 @@ function buildServer(): McpServer {
       })).describe("Meals to check"),
       avoid: z.array(z.string()).describe("Tags to avoid"),
     },
-    { title: "Suggest swaps", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Suggest swaps", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => suggestSwaps(a)),
   );
 
   server.tool(
     "delivery_schedule",
-    "Compute the next N delivery dates on a weekly cadence from a first delivery.",
+    "Schedule N weekly deliveries starting from a given date. Use when planning future deliveries; NOT for matching kits.",
     {
       first_delivery: z.string().describe("First delivery YYYY-MM-DD"),
       every_weeks: z.number().optional().describe("Cadence in weeks, 1-12, default 1"),
       count: z.number().optional().describe("How many dates, 1-12, default 4"),
     },
-    { title: "Delivery schedule", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Delivery schedule", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => deliverySchedule(a)),
   );
 

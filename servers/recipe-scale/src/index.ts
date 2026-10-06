@@ -43,32 +43,32 @@ function buildServer(): McpServer {
 
   server.tool(
     "scale_recipe",
-    "Scale every ingredient of a recipe from one serving count to another, with friendly kitchen measures and items without a quantity passed through.",
+    "Scale ingredients from one serving count to another. Use when adjusting recipe sizes, NOT when combining lists (use merge_shopping_list).",
     {
       ingredients: z.array(Ingredient).describe("Ingredients with optional quantity and unit"),
       from_servings: z.number().describe("Servings the recipe is written for"),
       to_servings: z.number().describe("Servings you want"),
     },
-    { title: "Scale recipe", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Scale recipe", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => scaleRecipe(a)),
   );
 
   server.tool(
     "convert_units",
-    "Convert a cooking amount between units: same-dimension conversions are exact; cups to grams and similar need a known ingredient density.",
+    "Convert a cooking amount between units. Use when needing exact conversions; avoid for volume-to-weight without known ingredient density, try scale_recipe instead.",
     {
       value: z.number().describe("Amount to convert"),
       from: z.string().describe("Unit to convert from, e.g. cup"),
       to: z.string().describe("Unit to convert to, e.g. g"),
       ingredient: z.string().optional().describe("Ingredient name, needed for volume <-> weight, e.g. flour"),
     },
-    { title: "Convert units", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Convert units", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => convertUnits(a)),
   );
 
   server.tool(
     "merge_shopping_list",
-    "Merge several shopping lists into one: quantities of the same item are summed in a common unit and shown in the friendliest kitchen unit; items without a quantity are collected as notes.",
+    "Merge multiple shopping lists into one unified list. Use when combining lists for a big event; avoid when scaling individual recipes with scale_recipe.",
     {
       lists: z.array(z.object({
         name: z.string().optional().describe("e.g. 'Saturday dinner'"),
@@ -79,13 +79,13 @@ function buildServer(): McpServer {
         })).describe("Items on this list"),
       })).describe("Shopping lists to merge"),
     },
-    { title: "Merge shopping list", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Merge shopping list", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => mergeShoppingList(a)),
   );
 
   server.tool(
     "cost_per_serving",
-    "Total the cost of the ingredients in a recipe and divide it by the servings to get cost per serving, also shown for 10 servings.",
+    "Calculate the cost per serving of a recipe. Use when you need to budget for a meal. Do NOT use when you need to adjust the number of servings in a recipe, use scale_recipe instead.",
     {
       ingredients: z.array(z.object({
         item: z.string().describe("Ingredient name"),
@@ -94,7 +94,7 @@ function buildServer(): McpServer {
       servings: z.number().describe("How many servings the recipe makes"),
       currency: z.string().optional().describe("Currency code for display, default USD"),
     },
-    { title: "Cost per serving", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Cost per serving", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => costPerServing(a)),
   );
 

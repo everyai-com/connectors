@@ -51,18 +51,18 @@ function buildServer(): McpServer {
 
   server.tool(
     "diagnose_issue",
-    "Diagnose a plumbing issue: likely causes, severity (emergency/same_day/routine), shutoff steps and whether to call a pro.",
+    "Diagnose a plumbing issue's severity and next steps. Use when the customer reports a problem. Do NOT use when scheduling a visit (use find_slots).",
     {
       symptom: z.string().describe("leak, burst_pipe, clog, no_hot_water, low_pressure, running_toilet or sewer_smell"),
       details: z.string().optional().describe("Extra details from the caller"),
     },
-    { title: "Diagnose issue", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Diagnose issue", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => diagnoseIssue(a)),
   );
 
   server.tool(
     "find_slots",
-    "Find open start times in availability windows that fit a job length, every 30 minutes.",
+    "Find open start times in availability windows that fit a job length, every 30 minutes. Use when scheduling a job, NOT when checking plumber workload (use diagnose_issue).",
     {
       availability: z.array(Window).describe("Plumber availability windows"),
       day: z.string().optional().describe("Filter to a weekday"),
@@ -70,25 +70,25 @@ function buildServer(): McpServer {
       after: z.string().optional().describe("Only slots ending after HH:MM"),
       before: z.string().optional().describe("Only slots starting before HH:MM"),
     },
-    { title: "Find slots", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Find slots", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => findSlots(a)),
   );
 
   server.tool(
     "quote_job",
-    "Quote a plumbing job with add-ons from a pricebook: line items, total price and total minutes.",
+    "Quote a plumbing job with add-ons from a pricebook. Use when you need a detailed cost breakdown. Do NOT use when you need to diagnose an issue; use diagnose_issue instead.",
     {
       pricebook: z.array(PriceItem).describe("Plumber pricebook"),
       job: z.string().describe("Job to quote"),
       add_ons: z.array(z.string()).optional().describe("Add-on job names"),
     },
-    { title: "Quote job", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Quote job", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => quoteJob(a)),
   );
 
   server.tool(
     "compare_plumbers",
-    "Rank 2-6 plumbers from your price, rating and distance numbers: 50% rating, 30% price, 20% distance.",
+    "Rank plumbers by price, rating, and distance. Use when you need to prioritize based on multiple factors. Avoid when you need to diagnose the issue instead; use diagnose_issue.",
     {
       plumbers: z.array(z.object({
         name: z.string().describe("Plumber name"),
@@ -97,13 +97,13 @@ function buildServer(): McpServer {
         distance_min: z.number().describe("Travel minutes"),
       })).describe("Plumbers to compare"),
     },
-    { title: "Compare plumbers", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Compare plumbers", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => comparePlumbers(a)),
   );
 
   server.tool(
     "build_dispatch_request",
-    "Draft a dispatch-request message to send a plumber: job, date, time, name and units. Draft only, never sent.",
+    "Create a dispatch-request message for a plumber: use when you have all details and need a draft. Do NOT use when you need to find available time slots, use find_slots.",
     {
       job: z.string().describe("Job needed"),
       date: z.string().describe("Date YYYY-MM-DD"),
@@ -112,19 +112,19 @@ function buildServer(): McpServer {
       phone: z.string().optional().describe("Callback number"),
       units: z.number().optional().describe("Units, 1-10, default 1"),
     },
-    { title: "Build dispatch request", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Build dispatch request", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => buildDispatchRequest(a)),
   );
 
   server.tool(
     "maintenance_plan",
-    "Compute the next N plumbing checkup dates every K months after a last visit.",
+    "Schedule N plumbing checkups every K months after a last visit. Use when planning future maintenance. Not for immediate issue diagnosis; use diagnose_issue instead.",
     {
       last_visit: z.string().describe("Last visit YYYY-MM-DD"),
       every_months: z.number().optional().describe("Interval in months, 1-24, default 12"),
       count: z.number().optional().describe("How many dates, 1-12, default 2"),
     },
-    { title: "Maintenance plan", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Maintenance plan", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => maintenancePlan(a)),
   );
 

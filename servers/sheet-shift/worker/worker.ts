@@ -4,7 +4,7 @@ import { cleanTable, columnStats, convertTable, splitColumn } from "../../mcp-se
 interface Env { API_KEY?: string; OPENAI_APPS_CHALLENGE_TOKEN?: string; }
 const VERSION = "1.0.0";
 const MAX_BODY = 1024 * 1024;
-const ANNOT = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+const ANNOT = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 
 type A = Record<string, unknown>;
 const req = (a: A, k: string, t: string): never | unknown => {
@@ -18,20 +18,131 @@ const optBool = (a: A, k: string) => (typeof a[k] === "boolean" ? a[k] as boolea
 
 const TOOLS = [
   { name: "convert_table", title: "Convert table",
-    description: "Convert a table string between CSV, TSV, JSON and Markdown.",
-    inputSchema: { type: "object", properties: { data: { type: "string" }, from_format: { type: "string" }, to_format: { type: "string" } }, required: ["data", "from_format", "to_format"] },
+    description: "Convert a table string between CSV, TSV, JSON and Markdown. Use when you need to change the table format. Do NOT use when you need to clean the table; use clean_table instead.",
+    inputSchema: { type: "object", properties: { data: { description: "The data for this request.", type: "string" }, from_format: { description: "The from format for this request.", type: "string" }, to_format: { description: "The to format for this request.", type: "string" } }, required: ["data", "from_format", "to_format"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "converted_data": {
+         "type": "string",
+         "description": "The table data converted to the specified format."
+        },
+        "from_format": {
+         "type": "string",
+         "description": "The original format of the table data."
+        },
+        "to_format": {
+         "type": "string",
+         "description": "The format the table data was converted to."
+        }
+       },
+       "required": [
+        "converted_data",
+        "from_format",
+        "to_format"
+       ]
+      },
     run: (a: A) => convertTable(req(a, "data", "str") as string, req(a, "from_format", "str") as string, req(a, "to_format", "str") as string) },
   { name: "clean_table", title: "Clean table",
-    description: "Trim cells, drop empty rows, dedupe rows in a table string.",
-    inputSchema: { type: "object", properties: { data: { type: "string" }, format: { type: "string" }, trim: { type: "boolean" }, drop_empty_rows: { type: "boolean" }, dedupe: { type: "boolean" } }, required: ["data"] },
+    description: "Clean a table string by trimming cells, dropping empty rows, and deduplicating rows. Use when preparing data for analysis; NOT for transforming data types. Use convert_table to change data types.",
+    inputSchema: { type: "object", properties: { data: { description: "The data for this request.", type: "string" }, format: { description: "The format for this request.", type: "string" }, trim: { description: "Set true to enable trim; false otherwise.", type: "boolean" }, drop_empty_rows: { description: "Set true to enable drop empty rows; false otherwise.", type: "boolean" }, dedupe: { description: "Set true to enable dedupe; false otherwise.", type: "boolean" } }, required: ["data"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "cleaned_data": {
+         "type": "string",
+         "description": "The cleaned table string with trimmed cells, empty rows dropped, and duplicate rows removed."
+        },
+        "rows_dropped": {
+         "type": "integer",
+         "description": "The number of empty rows that were dropped from the table."
+        },
+        "rows_duplicated": {
+         "type": "integer",
+         "description": "The number of duplicate rows that were removed from the table."
+        }
+       },
+       "required": [
+        "cleaned_data"
+       ]
+      },
     run: (a: A) => cleanTable(req(a, "data", "str") as string, optStr(a, "format", "csv")!, { trim: optBool(a, "trim"), drop_empty_rows: optBool(a, "drop_empty_rows"), dedupe: optBool(a, "dedupe") }) },
   { name: "column_stats", title: "Column stats",
-    description: "Sum/avg/min/max/count/distinct over one column (name or 0-based index).",
-    inputSchema: { type: "object", properties: { data: { type: "string" }, format: { type: "string" }, column: { type: "string" }, op: { type: "string" } }, required: ["data", "column", "op"] },
+    description: "Calculate statistics over one column in a table. Use when needing summary statistics for a single column; NOT for multi-column analysis. Use 'convert_table' for transformations.",
+    inputSchema: { type: "object", properties: { data: { description: "The data for this request.", type: "string" }, format: { description: "The format for this request.", type: "string" }, column: { description: "The column for this request.", type: "string" }, op: { description: "The op for this request.", type: "string" } }, required: ["data", "column", "op"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "sum": {
+         "type": "number",
+         "description": "The sum of the values in the specified column."
+        },
+        "avg": {
+         "type": "number",
+         "description": "The average of the values in the specified column."
+        },
+        "min": {
+         "type": "number",
+         "description": "The minimum value in the specified column."
+        },
+        "max": {
+         "type": "number",
+         "description": "The maximum value in the specified column."
+        },
+        "count": {
+         "type": "integer",
+         "description": "The number of values in the specified column."
+        },
+        "distinct": {
+         "type": "integer",
+         "description": "The number of distinct values in the specified column."
+        }
+       },
+       "required": [
+        "sum",
+        "avg",
+        "min",
+        "max",
+        "count",
+        "distinct"
+       ]
+      },
     run: (a: A) => columnStats(req(a, "data", "str") as string, optStr(a, "format", "csv")!, req(a, "column", "str") as string, req(a, "op", "str") as string) },
   { name: "split_column", title: "Split column",
-    description: "Split one column on a delimiter into new columns.",
-    inputSchema: { type: "object", properties: { data: { type: "string" }, format: { type: "string" }, column: { type: "string" }, delimiter: { type: "string" }, new_names: { type: "array", items: { type: "string" } } }, required: ["data", "column", "delimiter"] },
+    description: "Split a column into multiple columns by a delimiter. Use when you need to divide a single column into multiple columns based on a specific delimiter. Do NOT use when you need to convert data types or clean data; use convert_table or clean_table instead.",
+    inputSchema: { type: "object", properties: { data: { description: "The data for this request.", type: "string" }, format: { description: "The format for this request.", type: "string" }, column: { description: "The column for this request.", type: "string" }, delimiter: { description: "The delimiter for this request.", type: "string" }, new_names: { description: "List of new names values.", type: "array", items: { type: "string" } } }, required: ["data", "column", "delimiter"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "data": {
+         "type": "string",
+         "description": "The modified data string with the column split into new columns."
+        },
+        "new_columns": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         },
+         "description": "An array of new column names created from the split operation."
+        },
+        "status": {
+         "type": "string",
+         "description": "The status of the operation, indicating whether it was successful or if there were any errors."
+        },
+        "errors": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         },
+         "description": "An array of error messages, if any, encountered during the split operation."
+        }
+       },
+       "required": [
+        "data",
+        "new_columns",
+        "status"
+       ]
+      },
     run: (a: A) => splitColumn(req(a, "data", "str") as string, optStr(a, "format", "csv")!, req(a, "column", "str") as string, req(a, "delimiter", "str") as string, a.new_names as string[] | undefined) },
 ];
 
@@ -202,7 +313,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
       ttlMs: 3600000,
       cacheScope: "public",
     } }, 200, cors(request));
-    if (body.method === "tools/list") return json({ jsonrpc: "2.0", id, result: { tools: TOOLS.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema, annotations: { title: t.title, ...ANNOT } })) } }, 200, cors(request));
+    if (body.method === "tools/list") return json({ jsonrpc: "2.0", id, result: { tools: TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, outputSchema: t.outputSchema, annotations: { ...ANNOT } })) } }, 200, cors(request));
     if (body.method === "tools/call") {
       const tool = TOOLS.find((t) => t.name === body.params?.name);
       if (!tool) return json({ jsonrpc: "2.0", id, error: { code: -32602, message: `unknown tool '${body.params?.name}'` } }, 200, cors(request));

@@ -4,7 +4,7 @@ import { roommateAgreement, settleUp, splitRent, splitUtilities } from "../../mc
 interface Env { API_KEY?: string; OPENAI_APPS_CHALLENGE_TOKEN?: string; }
 const VERSION = "1.0.0";
 const MAX_BODY = 1024 * 1024;
-const ANNOT = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+const ANNOT = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 
 type A = Record<string, unknown>;
 const req = (a: A, k: string, t: string): never | unknown => {
@@ -17,38 +17,204 @@ const req = (a: A, k: string, t: string): never | unknown => {
 
 const TOOLS = [
   { name: "split_rent", title: "Split rent",
-    description: "Split monthly rent across rooms - equally or by room size - showing each room's share and, for shared rooms, each occupant's share.",
+    description: "Split rent across rooms. Use when rent is fixed and needs dividing. Do NOT use when dividing variable costs like utilities; use split_utilities instead.",
     inputSchema: { type: "object", properties: {
       total_rent: { type: "number", description: "Monthly rent for the whole house" },
       rooms: { type: "array", items: { type: "object", properties: { name: { type: "string" }, size: { type: "number" }, occupants: { type: "array", items: { type: "string" } } }, required: ["name"] }, description: "Rooms in the house" },
       method: { type: "string", enum: ["equal", "by_size"], description: "Split method; default by_size when every room has a size, else equal" },
     }, required: ["total_rent", "rooms"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "total_rent": {
+         "type": "number",
+         "description": "The total monthly rent for the whole house."
+        },
+        "rooms": {
+         "type": "array",
+         "items": {
+          "type": "object",
+          "properties": {
+           "name": {
+            "type": "string",
+            "description": "The name of the room."
+           },
+           "size": {
+            "type": "number",
+            "description": "The size of the room."
+           },
+           "occupants": {
+            "type": "array",
+            "items": {
+             "type": "object",
+             "properties": {
+              "name": {
+               "type": "string",
+               "description": "The name of the occupant."
+              },
+              "share": {
+               "type": "number",
+               "description": "The amount of rent this occupant owes."
+              }
+             },
+             "required": [
+              "name",
+              "share"
+             ]
+            },
+            "description": "The occupants of the room and their respective shares."
+           },
+           "share": {
+            "type": "number",
+            "description": "The amount of rent this room owes."
+           }
+          },
+          "required": [
+           "name",
+           "share"
+          ]
+         },
+         "description": "The rooms in the house and their respective shares."
+        }
+       },
+       "required": [
+        "total_rent",
+        "rooms"
+       ]
+      },
     run: (a: A) => {
       req(a, "total_rent", "num"); req(a, "rooms", "arr");
       return splitRent(a as unknown as Parameters<typeof splitRent>[0]);
     } },
   { name: "split_utilities", title: "Split utilities",
-    description: "Split utility and household bills across housemates - equally, by occupants per room, or by usage - and total what each person owes.",
+    description: "Split utility bills among housemates. Use when bills are shared, not when splitting rent (use split_rent).",
     inputSchema: { type: "object", properties: {
       bills: { type: "array", items: { type: "object", properties: { name: { type: "string" }, amount: { type: "number" }, split: { type: "string", enum: ["equal", "by_occupants", "by_usage"] } }, required: ["name", "amount", "split"] }, description: "Bills to split" },
       people: { type: "array", items: { type: "object", properties: { name: { type: "string" }, occupants: { type: "number" }, usage_weight: { type: "number" } }, required: ["name"] }, description: "People sharing the house" },
     }, required: ["bills", "people"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "split_results": {
+         "type": "array",
+         "description": "List of split results for each person",
+         "items": {
+          "type": "object",
+          "properties": {
+           "name": {
+            "type": "string",
+            "description": "Name of the person"
+           },
+           "total_owed": {
+            "type": "number",
+            "description": "Total amount owed by the person"
+           },
+           "bill_details": {
+            "type": "array",
+            "description": "Details of each bill and the person's share",
+            "items": {
+             "type": "object",
+             "properties": {
+              "bill_name": {
+               "type": "string",
+               "description": "Name of the bill"
+              },
+              "amount_owed": {
+               "type": "number",
+               "description": "Amount owed by the person for this bill"
+              }
+             },
+             "required": [
+              "bill_name",
+              "amount_owed"
+             ]
+            }
+           }
+          },
+          "required": [
+           "name",
+           "total_owed",
+           "bill_details"
+          ]
+         }
+        }
+       },
+       "required": [
+        "split_results"
+       ]
+      },
     run: (a: A) => {
       req(a, "bills", "arr"); req(a, "people", "arr");
       return splitUtilities(a as unknown as Parameters<typeof splitUtilities>[0]);
     } },
   { name: "settle_up", title: "Settle up",
-    description: "Given shared household costs and what each housemate already paid, compute balances and the minimal set of payments to settle everyone.",
+    description: "Calculate balances and minimal payments to settle shared household costs. Use when you need to resolve debts among housemates. Do NOT use when you need to create a roommate agreement; use roommate_agreement instead.",
     inputSchema: { type: "object", properties: {
       costs: { type: "array", items: { type: "object", properties: { name: { type: "string" }, amount: { type: "number" } }, required: ["name", "amount"] }, description: "Shared costs to split equally" },
       payments: { type: "array", items: { type: "object", properties: { name: { type: "string" }, paid: { type: "number" } }, required: ["name", "paid"] }, description: "What each housemate paid" },
     }, required: ["costs", "payments"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "balances": {
+         "type": "array",
+         "description": "List of balances for each housemate",
+         "items": {
+          "type": "object",
+          "properties": {
+           "name": {
+            "type": "string",
+            "description": "The name of the housemate"
+           },
+           "balance": {
+            "type": "number",
+            "description": "The balance owed or due by the housemate"
+           }
+          },
+          "required": [
+           "name",
+           "balance"
+          ]
+         }
+        },
+        "transactions": {
+         "type": "array",
+         "description": "List of transactions to settle the balances",
+         "items": {
+          "type": "object",
+          "properties": {
+           "from": {
+            "type": "string",
+            "description": "The name of the housemate paying"
+           },
+           "to": {
+            "type": "string",
+            "description": "The name of the housemate receiving the payment"
+           },
+           "amount": {
+            "type": "number",
+            "description": "The amount to be paid"
+           }
+          },
+          "required": [
+           "from",
+           "to",
+           "amount"
+          ]
+         }
+        }
+       },
+       "required": [
+        "balances",
+        "transactions"
+       ]
+      },
     run: (a: A) => {
       req(a, "costs", "arr"); req(a, "payments", "arr");
       return settleUp(a as unknown as Parameters<typeof settleUp>[0]);
     } },
   { name: "roommate_agreement", title: "Roommate agreement",
-    description: "Draft a plain-language shared-living agreement: parties, term, rent split, deposit handling, utilities policy, house rules, notice period and signature blocks.",
+    description: "Generate a shared-living agreement for tenants. Use when you need a comprehensive agreement. Do NOT use when you only need to split utilities.",
     inputSchema: { type: "object", properties: {
       property_address: { type: "string", description: "Address of the shared home" },
       tenants: { type: "array", items: { type: "string" }, description: "All tenants (at least 2)" },
@@ -60,6 +226,40 @@ const TOOLS = [
       notice_period_months: { type: "number", description: "Notice period in months, default 1" },
       house_rules: { type: "array", items: { type: "string" }, description: "Custom house rules; default covers quiet hours, guests, cleaning rota and shared supplies" },
     }, required: ["property_address", "tenants", "move_in_date", "monthly_rent", "deposit"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "agreement_text": {
+         "type": "string",
+         "description": "The full text of the roommate agreement in plain language."
+        },
+        "signature_blocks": {
+         "type": "array",
+         "items": {
+          "type": "object",
+          "properties": {
+           "tenant_name": {
+            "type": "string",
+            "description": "The name of the tenant who needs to sign."
+           },
+           "signature_date": {
+            "type": "string",
+            "description": "The date on which the tenant should sign."
+           }
+          },
+          "required": [
+           "tenant_name",
+           "signature_date"
+          ]
+         },
+         "description": "The signature blocks for each tenant."
+        }
+       },
+       "required": [
+        "agreement_text",
+        "signature_blocks"
+       ]
+      },
     run: (a: A) => {
       req(a, "property_address", "str"); req(a, "tenants", "arr"); req(a, "move_in_date", "str"); req(a, "monthly_rent", "num"); req(a, "deposit", "num");
       return roommateAgreement(a as unknown as Parameters<typeof roommateAgreement>[0]);
@@ -230,7 +430,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
       ttlMs: 3600000,
       cacheScope: "public",
     } }, 200, cors(request));
-    if (body.method === "tools/list") return json({ jsonrpc: "2.0", id, result: { tools: TOOLS.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema, annotations: { title: t.title, ...ANNOT } })) } }, 200, cors(request));
+    if (body.method === "tools/list") return json({ jsonrpc: "2.0", id, result: { tools: TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, outputSchema: t.outputSchema, annotations: { ...ANNOT } })) } }, 200, cors(request));
     if (body.method === "tools/call") {
       const tool = TOOLS.find((t) => t.name === body.params?.name);
       if (!tool) return json({ jsonrpc: "2.0", id, error: { code: -32602, message: `unknown tool '${body.params?.name}'` } }, 200, cors(request));

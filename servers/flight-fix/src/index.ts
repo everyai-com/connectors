@@ -45,7 +45,7 @@ function buildServer(): McpServer {
 
   server.tool(
     "check_compensation",
-    "Check EU261/UK261 compensation eligibility and amount for a delayed or cancelled flight. Give IATA codes; distance is computed for known airports.",
+    "Calculate compensation for a disrupted flight between two airports. Use when you need to determine eligibility and amount for a specific flight; NOT when you need to generate a claim letter, use generate_claim_letter.",
     {
       departure: z.string().describe("Departure airport IATA code, e.g. LHR"),
       arrival: z.string().describe("Arrival airport IATA code, e.g. JFK"),
@@ -58,21 +58,21 @@ function buildServer(): McpServer {
       carrier_country: z.string().optional().describe("Carrier's country code, e.g. DE (needed for arrivals into the EU)"),
       distance_km: z.number().optional().describe("Override distance for airports not in the table"),
     },
-    { title: "Check compensation", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Check compensation", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => checkCompensation({ ...a, reason_category: a.reason_category as ReasonCategory | undefined })),
   );
 
   server.tool(
     "compensation_table",
-    "Reference table: EU261/UK261 amounts by distance band, eligibility summary and claim windows.",
+    "Retrieve EU261/UK261 compensation amounts by distance band. Use when needing specific compensation details; avoid when assessing disruption rights, use disruption_rights instead.",
     {},
-    { title: "Compensation table", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Compensation table", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async () => wrap(() => compensationTable()),
   );
 
   server.tool(
     "disruption_rights",
-    "List your rights for a delayed, cancelled or overbooked flight: refund/re-routing, care, compensation and escalation path.",
+    "Retrieve flight disruption rights for a specific journey. Use when you need to know your rights for a disrupted flight. Do NOT use when you need to know the timeline for claiming compensation, use claim_timeline.",
     {
       departure: z.string(),
       arrival: z.string(),
@@ -80,24 +80,24 @@ function buildServer(): McpServer {
       arrival_delay_hours: z.number().optional(),
       notice_days: z.number().optional(),
     },
-    { title: "Disruption rights", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Disruption rights", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => disruptionRights(a)),
   );
 
   server.tool(
     "claim_timeline",
-    "Claim deadline guidance and evidence checklist for a flight date.",
+    "Retrieve claim timeline for a flight date and scheme. Use when needing a timeline for a specific flight date and scheme. Do NOT use when needing to check compensation eligibility; use check_compensation instead.",
     {
       flight_date: z.string().describe("Flight date YYYY-MM-DD"),
       scheme: z.enum(["EU261", "UK261"]),
     },
-    { title: "Claim timeline", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Claim timeline", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => claimTimeline(a)),
   );
 
   server.tool(
     "generate_claim_letter",
-    "Generate a formal compensation claim letter to the airline, citing EU261/UK261 with your flight details filled in.",
+    "Generate a claim letter for a flight delay, when you have all the flight details but need a formal letter. NOT when you need to check if you're eligible; use check_compensation instead.",
     {
       passenger_name: z.string(),
       airline_name: z.string(),
@@ -111,7 +111,7 @@ function buildServer(): McpServer {
       booking_reference: z.string().optional(),
       scheme: z.enum(["EU261", "UK261"]).optional(),
     },
-    { title: "Generate claim letter", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Generate claim letter", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => generateClaimLetter(a)),
   );
 

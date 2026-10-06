@@ -8,7 +8,7 @@ import { CURRENCIES, calculateTotals, createInvoice, formatInvoicePlain, type In
 const PORT = Number(process.env.PORT ?? 3003);
 const API_KEY = process.env.API_KEY ?? "";
 const CHALLENGE = process.env.OPENAI_APPS_CHALLENGE_TOKEN ?? "";
-const RO = { readOnlyHint: true, destructiveHint: false, openWorldHint: false } as const;
+const RO = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const;
 const LineItem = z.object({ description: z.string(), quantity: z.number(), unit_price: z.number() });
 
 function buildServer(): McpServer {
@@ -20,21 +20,21 @@ function buildServer(): McpServer {
     try { return { content: [{ type: "text" as const, text: JSON.stringify(fn()) }] }; }
     catch (e) { return { content: [{ type: "text" as const, text: `ERROR ${e instanceof Error ? e.message : "bad input"}` }], isError: true }; }
   };
-  server.tool("create_invoice", "Generate a complete invoice (number, dates, totals) from business, client and line items. Nothing stored.",
+  server.tool("create_invoice", "Generate a complete invoice from business, client and line items. Use when you need a full invoice. NOT for calculating totals only; use calculate_totals instead.",
     { business_name: z.string(), client_name: z.string(), items: z.array(LineItem),
       currency: z.string().describe("USD,EUR,INR,GBP,AED,SGD,AUD,CAD (default USD)").optional(),
       tax_rate_pct: z.number().optional(), discount_pct: z.number().optional(),
       invoice_number: z.string().optional(), notes: z.string().optional(), due_in_days: z.number().optional() },
     { title: "Create invoice", ...RO },
     async (a) => wrap(() => createInvoice(a as InvoiceInput))());
-  server.tool("calculate_totals", "Subtotal, discount, tax and total for line items.",
+  server.tool("calculate_totals", "Calculate totals for invoice line items. Use when needing subtotals, discounts, and taxes. Do NOT use when needing to create an invoice; use create_invoice instead.",
     { items: z.array(LineItem), tax_rate_pct: z.number().optional(), discount_pct: z.number().optional() },
     { title: "Calculate totals", ...RO },
     async (a) => wrap(() => calculateTotals(a.items, a.tax_rate_pct ?? 0, a.discount_pct ?? 0))());
-  server.tool("supported_currencies", "List supported invoice currencies with symbols.",
+  server.tool("supported_currencies", "List all supported invoice currencies globally. Use when setting up a new invoice, not when calculating totals (use calculate_totals).",
     {}, { title: "Supported currencies", ...RO },
     async () => wrap(() => ({ currencies: CURRENCIES }))());
-  server.tool("render_invoice_text", "Rebuild + render an invoice as plain text (same inputs as create_invoice).",
+  server.tool("render_invoice_text", "Render an invoice as plain text for emailing. Use when you need a text version of an invoice. Do NOT use when you need a PDF version, use render_invoice_pdf instead.",
     { business_name: z.string(), client_name: z.string(), items: z.array(LineItem),
       currency: z.string().optional(), tax_rate_pct: z.number().optional(), discount_pct: z.number().optional(),
       invoice_number: z.string().optional(), notes: z.string().optional(), due_in_days: z.number().optional() },

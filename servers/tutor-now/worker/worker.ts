@@ -83,9 +83,9 @@ export class TutorStore extends DurableObject<Env> {
 const store = (env: Env) => env.TUTOR_STORE.getByName("tutor-requests");
 const VERSION = "1.0.0";
 const MAX_BODY = 1024 * 1024;
-const RO = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
-const WR = { readOnlyHint: false, destructiveHint: false, openWorldHint: true };
-const DE = { readOnlyHint: false, destructiveHint: true, openWorldHint: true };
+const RO = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
+const WR = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true };
+const DE = { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true };
 
 type A = Record<string, unknown>;
 const req = (a: A, k: string, t: string): never | unknown => {
@@ -97,67 +97,348 @@ const req = (a: A, k: string, t: string): never | unknown => {
 
 type ToolDef = {
   name: string; title: string;
-  annot: { readOnlyHint: boolean; destructiveHint: boolean; openWorldHint: boolean };
-  description: string; inputSchema: Record<string, unknown>;
+  annot: { readOnlyHint: boolean; destructiveHint: boolean; idempotentHint: boolean; openWorldHint: boolean };
+  description: string; inputSchema: Record<string, unknown>; outputSchema: Record<string, unknown>;
   run: (a: A, env: Env) => unknown | Promise<unknown>;
 };
 const TOOLS: ToolDef[] = [
   { name: "search_tutors", title: "Search tutors", annot: RO,
-    description: "Find vetted tutors by subject, with optional grade, max hourly rate and result limit. Returns matches sorted by rating.",
+    description: "Find vetted tutors by subject, with optional grade, max hourly rate and result limit. Use when you need to find tutors. Do NOT use when you need to see a tutor's availability, use tutor_slots.",
     inputSchema: { type: "object", properties: {
       subject: { type: "string", description: "e.g. math, physics, english" },
       grade: { type: "string", description: "K or 1-12" },
       max_rate: { type: "number", description: "Max USD per hour" },
       limit: { type: "number", description: "Max results 1-12, default 5" },
     }, required: ["subject"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "results": {
+         "type": "array",
+         "description": "List of search tutors entries.",
+         "items": {
+          "type": "object",
+          "properties": {
+           "tutor_id": {
+            "type": "string",
+            "description": "Unique identifier for the tutor"
+           },
+           "name": {
+            "type": "string",
+            "description": "Tutor's name"
+           },
+           "subject": {
+            "type": "string",
+            "description": "Subject the tutor teaches"
+           },
+           "grade": {
+            "type": "string",
+            "description": "Grade level the tutor teaches"
+           },
+           "hourly_rate": {
+            "type": "number",
+            "description": "Tutor's hourly rate in USD"
+           },
+           "rating": {
+            "type": "number",
+            "description": "Tutor's rating out of 5"
+           }
+          },
+          "required": [
+           "tutor_id",
+           "name",
+           "subject",
+           "grade",
+           "hourly_rate",
+           "rating"
+          ]
+         }
+        }
+       },
+       "required": [
+        "results"
+       ]
+      },
     run: (a: A) => { req(a, "subject", "str"); return searchTutors(a as unknown as Parameters<typeof searchTutors>[0]); } },
   { name: "tutor_profile", title: "Tutor profile", annot: RO,
-    description: "Full profile for one tutor: subjects, grades, rate, rating, experience and bio.",
+    description: "Retrieve full profile for one tutor by ID. Use when you need detailed tutor info for a specific tutor. Do NOT use when you need to find available tutors, use search_tutors instead.",
     inputSchema: { type: "object", properties: {
       tutor_id: { type: "string", description: "Tutor id from search_tutors" },
     }, required: ["tutor_id"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "tutor_id": {
+         "type": "string",
+         "description": "The unique identifier for the tutor."
+        },
+        "subjects": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         },
+         "description": "The list of subjects the tutor can teach."
+        },
+        "grades": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         },
+         "description": "The list of grades the tutor can teach."
+        },
+        "rate": {
+         "type": "number",
+         "description": "The hourly rate for the tutor."
+        },
+        "rating": {
+         "type": "number",
+         "description": "The average rating of the tutor."
+        },
+        "experience": {
+         "type": "number",
+         "description": "The number of years of teaching experience the tutor has."
+        },
+        "bio": {
+         "type": "string",
+         "description": "A brief biography of the tutor."
+        }
+       },
+       "required": [
+        "tutor_id",
+        "subjects",
+        "grades",
+        "rate",
+        "rating",
+        "experience",
+        "bio"
+       ]
+      },
     run: (a: A) => { req(a, "tutor_id", "str"); return tutorProfile(a as unknown as Parameters<typeof tutorProfile>[0]); } },
   { name: "tutor_slots", title: "Tutor slots", annot: RO,
-    description: "Open intro-session start times (ISO UTC) for a tutor on a date (YYYY-MM-DD). Call before requesting.",
+    description: "Retrieve available intro-session start times for a tutor on a specific date. Use when you need to schedule an intro session. Do NOT use when you need to find a tutor, use search_tutors.",
     inputSchema: { type: "object", properties: {
-      tutor_id: { type: "string" },
+      tutor_id: { description: "Unique ID of the tutor to check availability for.", type: "string" },
       date: { type: "string", description: "Date YYYY-MM-DD" },
     }, required: ["tutor_id", "date"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "tutor_id": {
+         "type": "string",
+         "description": "The unique identifier for the tutor."
+        },
+        "date": {
+         "type": "string",
+         "description": "The date for which the slots are retrieved, in YYYY-MM-DD format."
+        },
+        "slots": {
+         "type": "array",
+         "description": "List of available intro-session start times.",
+         "items": {
+          "type": "string",
+          "format": "date-time",
+          "description": "An available start time for an intro session, in ISO UTC format."
+         }
+        }
+       },
+       "required": [
+        "tutor_id",
+        "date",
+        "slots"
+       ]
+      },
     run: (a: A, env: Env) => { req(a, "tutor_id", "str"); req(a, "date", "str"); return store(env).tutorSlots(a as unknown as { tutor_id: string; date: string }); } },
   { name: "quote_plan", title: "Quote plan", annot: RO,
-    description: "Quote a weekly tutoring plan: total sessions and USD price with long-plan discounts. No booking made.",
+    description: "Calculate the cost of a weekly tutoring plan. Use when estimating long-term tutoring expenses; avoid when needing tutor availability, use tutor_slots.",
     inputSchema: { type: "object", properties: {
-      tutor_id: { type: "string" },
-      sessions_per_week: { type: "number", description: "1-5" },
-      weeks: { type: "number", description: "1-24" },
+      tutor_id: { description: "ID of the tutor to calculate the plan for", type: "string" },
+      sessions_per_week: { type: "number", description: "Number of tutoring sessions per week" },
+      weeks: { type: "number", description: "Number of weeks for the tutoring plan" },
     }, required: ["tutor_id", "sessions_per_week", "weeks"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "tutor_id": {
+         "type": "string",
+         "description": "The unique identifier for the tutor."
+        },
+        "total_sessions": {
+         "type": "number",
+         "description": "The total number of tutoring sessions in the plan."
+        },
+        "total_price_usd": {
+         "type": "number",
+         "description": "The total price in USD for the tutoring plan."
+        },
+        "discount_applied": {
+         "type": "boolean",
+         "description": "Indicates whether a discount was applied to the plan."
+        },
+        "discount_amount_usd": {
+         "type": "number",
+         "description": "The amount of discount applied in USD."
+        }
+       },
+       "required": [
+        "tutor_id",
+        "total_sessions",
+        "total_price_usd",
+        "discount_applied",
+        "discount_amount_usd"
+       ]
+      },
     run: (a: A) => { req(a, "tutor_id", "str"); req(a, "sessions_per_week", "num"); req(a, "weeks", "num"); return quotePlan(a as unknown as Parameters<typeof quotePlan>[0]); } },
   { name: "request_intro", title: "Request intro", annot: WR,
-    description: "Request an intro session in an open slot. Idempotent on idempotency_key: repeats return the same request, never double-books. The tutor confirms within 24 hours; nothing is charged for the intro.",
+    description: "Schedule an intro session with a tutor in an open slot. Use this when you have a specific tutor and time slot in mind. Do NOT use this when you need to find available tutors, use search_tutors instead.",
     inputSchema: { type: "object", properties: {
-      tutor_id: { type: "string" },
+      tutor_id: { description: "ID of the tutor to schedule with", type: "string" },
       starts_at: { type: "string", description: "ISO start from tutor_slots" },
-      student_name: { type: "string" },
-      subject: { type: "string" },
+      student_name: { description: "Name of the student requesting the session", type: "string" },
+      subject: { description: "Subject of the tutoring session", type: "string" },
       grade: { type: "string", description: "K or 1-12" },
       contact: { type: "string", description: "Parent email or phone" },
       idempotency_key: { type: "string", description: "Client-generated unique key per request" },
     }, required: ["tutor_id", "starts_at", "student_name", "subject", "grade", "contact", "idempotency_key"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "request_id": {
+         "type": "string",
+         "description": "Unique identifier for the intro request."
+        },
+        "tutor_id": {
+         "type": "string",
+         "description": "ID of the tutor for the intro session."
+        },
+        "starts_at": {
+         "type": "string",
+         "description": "ISO start time of the intro session."
+        },
+        "student_name": {
+         "type": "string",
+         "description": "Name of the student for the intro session."
+        },
+        "subject": {
+         "type": "string",
+         "description": "Subject of the intro session."
+        },
+        "grade": {
+         "type": "string",
+         "description": "Grade level of the student (K or 1-12)."
+        },
+        "contact": {
+         "type": "string",
+         "description": "Parent's email or phone number for contact."
+        },
+        "idempotency_key": {
+         "type": "string",
+         "description": "Client-generated unique key for idempotency."
+        },
+        "status": {
+         "type": "string",
+         "description": "Current status of the intro request (e.g., pending, confirmed, canceled)."
+        },
+        "confirmed_at": {
+         "type": "string",
+         "description": "ISO timestamp when the tutor confirmed the intro session."
+        },
+        "canceled_at": {
+         "type": "string",
+         "description": "ISO timestamp when the intro session was canceled."
+        }
+       },
+       "required": [
+        "request_id",
+        "tutor_id",
+        "starts_at",
+        "student_name",
+        "subject",
+        "grade",
+        "contact",
+        "idempotency_key",
+        "status"
+       ]
+      },
     run: (a: A, env: Env) => {
       for (const k of ["tutor_id", "starts_at", "student_name", "subject", "grade", "contact", "idempotency_key"]) req(a, k, "str");
       return store(env).requestIntro(a as unknown as { tutor_id: string; starts_at: string; student_name: string; subject: string; grade: string; contact: string; idempotency_key: string });
     } },
   { name: "get_request", title: "Get request", annot: RO,
-    description: "Get an intro request's status by id.",
+    description: "Retrieve an intro request's status by id. Use when you need to check the status of a specific request. Do NOT use when you need to find available tutors; use search_tutors instead.",
     inputSchema: { type: "object", properties: {
-      request_id: { type: "string" },
+      request_id: { description: "The unique identifier of the request to check status", type: "string" },
     }, required: ["request_id"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "request_id": {
+         "type": "string",
+         "description": "The unique identifier for the request."
+        },
+        "status": {
+         "type": "string",
+         "description": "The current status of the request, e.g., 'pending', 'approved', 'rejected', 'completed'."
+        },
+        "tutor_id": {
+         "type": "string",
+         "description": "The unique identifier for the tutor assigned to the request."
+        },
+        "student_id": {
+         "type": "string",
+         "description": "The unique identifier for the student who made the request."
+        },
+        "requested_at": {
+         "type": "string",
+         "format": "date-time",
+         "description": "The date and time when the request was made."
+        },
+        "updated_at": {
+         "type": "string",
+         "format": "date-time",
+         "description": "The date and time when the request status was last updated."
+        },
+        "details": {
+         "type": "string",
+         "description": "Additional details or notes about the request."
+        }
+       },
+       "required": [
+        "request_id",
+        "status",
+        "tutor_id",
+        "student_id",
+        "requested_at",
+        "updated_at"
+       ]
+      },
     run: (a: A, env: Env) => { req(a, "request_id", "str"); return store(env).getRequest(a as unknown as { request_id: string }); } },
   { name: "cancel_request", title: "Cancel request", annot: DE,
-    description: "Cancel an intro request. The slot opens again. Cannot be undone - confirm with the user first.",
+    description: "Cancel an intro request by ID. Use when a user changes their mind. Do NOT use to reschedule, use tutor_slots instead.",
     inputSchema: { type: "object", properties: {
-      request_id: { type: "string" },
+      request_id: { description: "ID of the request to cancel, alphanumeric string", type: "string" },
     }, required: ["request_id"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "status": {
+         "type": "string",
+         "description": "The status of the cancellation request, e.g., 'success' or 'failure'."
+        },
+        "message": {
+         "type": "string",
+         "description": "A human-readable message indicating the result of the cancellation."
+        },
+        "request_id": {
+         "type": "string",
+         "description": "The ID of the canceled intro request."
+        }
+       },
+       "required": [
+        "status",
+        "message",
+        "request_id"
+       ]
+      },
     run: (a: A, env: Env) => { req(a, "request_id", "str"); return store(env).cancelRequest(a as unknown as { request_id: string }); } },
 ];
 
@@ -328,7 +609,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
       ttlMs: 3600000,
       cacheScope: "public",
     } }, 200, cors(request));
-    if (body.method === "tools/list") return json({ jsonrpc: "2.0", id, result: { tools: TOOLS.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema, annotations: { title: t.title, ...t.annot } })) } }, 200, cors(request));
+    if (body.method === "tools/list") return json({ jsonrpc: "2.0", id, result: { tools: TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, outputSchema: t.outputSchema, annotations: { ...t.annot } })) } }, 200, cors(request));
     if (body.method === "tools/call") {
       const tool = TOOLS.find((t) => t.name === body.params?.name);
       if (!tool) return json({ jsonrpc: "2.0", id, error: { code: -32602, message: `unknown tool '${body.params?.name}'` } }, 200, cors(request));

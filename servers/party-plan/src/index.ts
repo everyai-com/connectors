@@ -36,48 +36,48 @@ function buildServer(): McpServer {
 
   server.tool(
     "party_budget",
-    "Allocate a party budget across venue, food and drink, cake, decorations, entertainment, favors and contingency, with per-guest spend and category tips. Use when planning what to spend before booking; style picks the split (budget, standard or premium).",
+    "Allocate a budget across party categories. Use when planning what to spend before booking; use headcount_plan to estimate attendees.",
     {
       budget: z.number().describe("Total party budget in USD"),
       guests: z.number().describe("Number of guests (1-500)"),
       style: z.enum(["budget", "standard", "premium"]).optional().describe("Spending style, default standard"),
     },
-    { title: "Party budget", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Party budget", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => partyBudget(a)),
   );
 
   server.tool(
     "headcount_plan",
-    "Turn an invite list into expected attendance and shopping quantities: mains portions, drinks, cake slices, favors and plates with standard buffers. Use once RSVPs start arriving; attendance assumes adults only unless children_pct is given.",
+    "Calculate expected attendance and shopping quantities from an invite list. Use when RSVPs start arriving; do NOT use for budgeting, use party_budget instead.",
     {
       invited: z.number().describe("People invited (1-1000)"),
       expected_decline_pct: z.number().optional().describe("Expected share who decline, 0-100 (default 15)"),
       children_pct: z.number().optional().describe("Share of attendees who are children, 0-100 (default 0)"),
     },
-    { title: "Headcount plan", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Headcount plan", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => headcountPlan(a)),
   );
 
   server.tool(
     "party_timeline",
-    "Build a countdown plan for a party date: dated milestones at T-42, T-28, T-21, T-14, T-7, T-3, T-1 days and the day itself, each with tasks covering venue, invitations, menu, cake, decorations, confirmations, setup and the day-of run sheet.",
+    "Generate a party countdown plan for a given date. Use when planning a party timeline. Do NOT use when estimating party budget.",
     {
       event_date: z.string().describe("Party date in YYYY-MM-DD format"),
       event_type: z.string().optional().describe("Optional event label, e.g. 'birthday', 'bbq' or 'kids party'"),
       guests: z.number().optional().describe("Optional guest count for cake sizing"),
     },
-    { title: "Party timeline", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Party timeline", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => partyTimeline(a)),
   );
 
   server.tool(
     "party_checklist",
-    "Build a checklist grouped by food and drink, decorations, music and activities, practical items and safety, tailored to a home or venue party. Optional extras keywords (pool, bbq, costume, outdoor, kids, alcohol, potluck) add specific items and safety notes.",
+    "Generate a party checklist for a home or venue. Use when planning a party, NOT when planning a budget (use party_budget).",
     {
       venue: z.enum(["home", "venue"]).describe("Where the party happens"),
       extras: z.array(z.string()).optional().describe("Optional keywords such as 'pool', 'bbq', 'costume', 'outdoor'"),
     },
-    { title: "Party checklist", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Party checklist", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => partyChecklist(a)),
   );
 

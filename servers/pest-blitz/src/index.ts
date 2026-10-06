@@ -51,20 +51,20 @@ function buildServer(): McpServer {
 
   server.tool(
     "identify_pest",
-    "Identify likely pests from observed signs: candidates with confidence, urgency and next steps.",
+    "Identify pests from observed signs in a property. Use when you need to diagnose a pest issue; NOT when you need to find available time slots for a visit (use find_slots).",
     {
       signs: z.array(z.object({
         type: z.string().describe("droppings, noises, mud_tubes, sawdust, trails, nests, bites or damage"),
         where: z.string().describe("Where the sign was seen"),
       })).describe("Observed signs"),
     },
-    { title: "Identify pest", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Identify pest", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => identifyPest(a)),
   );
 
   server.tool(
     "find_slots",
-    "Find open start times in availability windows that fit a visit length, every 30 minutes.",
+    "Find open start times in availability windows that fit a visit length, every 30 minutes. Use when you need to schedule a visit within specific time frames. Do NOT use when you need to identify pests in a property, use identify_pest instead.",
     {
       availability: z.array(Window).describe("Provider availability windows"),
       day: z.string().optional().describe("Filter to a weekday"),
@@ -72,25 +72,25 @@ function buildServer(): McpServer {
       after: z.string().optional().describe("Only slots ending after HH:MM"),
       before: z.string().optional().describe("Only slots starting before HH:MM"),
     },
-    { title: "Find slots", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Find slots", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => findSlots(a)),
   );
 
   server.tool(
     "quote_treatment",
-    "Quote a pest treatment with add-ons from a pricebook: line items, total price and total minutes.",
+    "Quote a pest treatment with add-ons from a pricebook. Use when you need to generate a quote for a specific treatment and add-ons. Do NOT use when you need to find available time slots for a treatment; use find_slots instead.",
     {
       pricebook: z.array(PriceItem).describe("Provider pricebook"),
       treatment: z.string().describe("Treatment to quote"),
       add_ons: z.array(z.string()).optional().describe("Add-on treatment names"),
     },
-    { title: "Quote treatment", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Quote treatment", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => quoteTreatment(a)),
   );
 
   server.tool(
     "compare_providers",
-    "Rank 2-6 pest providers from your price, rating and distance numbers: 50% rating, 30% price, 20% distance.",
+    "Rank 2-6 pest providers by price, rating, and distance. Use when comparing multiple providers; NOT when needing a single best provider (use identify_pest).",
     {
       providers: z.array(z.object({
         name: z.string().describe("Provider name"),
@@ -99,13 +99,13 @@ function buildServer(): McpServer {
         distance_min: z.number().describe("Travel minutes"),
       })).describe("Providers to compare"),
     },
-    { title: "Compare providers", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Compare providers", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => compareProviders(a)),
   );
 
   server.tool(
     "build_dispatch_request",
-    "Draft a dispatch-request message to send a pest provider: treatment, date, time, name and units. Draft only, never sent.",
+    "Create a dispatch-request message for a pest provider. Use when you need to draft a request for treatment. Do NOT use when you need to find available time slots; use find_slots instead.",
     {
       treatment: z.string().describe("Treatment needed"),
       date: z.string().describe("Date YYYY-MM-DD"),
@@ -114,19 +114,19 @@ function buildServer(): McpServer {
       phone: z.string().optional().describe("Callback number"),
       units: z.number().optional().describe("Units, 1-10, default 1"),
     },
-    { title: "Build dispatch request", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Build dispatch request", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => buildDispatchRequest(a)),
   );
 
   server.tool(
     "retreat_schedule",
-    "Compute the next N retreatment dates every K weeks after a last visit.",
+    "Calculate N retreatment dates every K weeks after a last visit. Use when scheduling regular treatments; avoid when identifying pests with identify_pest.",
     {
       last_visit: z.string().describe("Last visit YYYY-MM-DD"),
       every_weeks: z.number().optional().describe("Interval in weeks, 1-52, default 4"),
       count: z.number().optional().describe("How many dates, 1-12, default 3"),
     },
-    { title: "Retreat schedule", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Retreat schedule", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => retreatSchedule(a)),
   );
 

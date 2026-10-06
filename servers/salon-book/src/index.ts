@@ -50,7 +50,7 @@ function buildServer(): McpServer {
 
   server.tool(
     "find_slots",
-    "Find open start times in availability windows that fit a service length, every 30 minutes.",
+    "Find open start times in availability windows that fit a service length, every 30 minutes. Use when you need to schedule a new appointment. Do NOT use when you need to send a reminder to a client, use appointment_reminders.",
     {
       availability: z.array(Window).describe("Salon availability windows"),
       day: z.string().optional().describe("Filter to a weekday"),
@@ -58,25 +58,25 @@ function buildServer(): McpServer {
       after: z.string().optional().describe("Only slots ending after HH:MM"),
       before: z.string().optional().describe("Only slots starting before HH:MM"),
     },
-    { title: "Find slots", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Find slots", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => findSlots(a)),
   );
 
   server.tool(
     "quote_service",
-    "Quote a service with add-ons from a salon menu: line items, total price and total minutes.",
+    "Quote a service with add-ons from a salon menu. Use when you need to calculate the cost and duration of a service with optional extras. Do NOT use when you need to find available time slots for a service; use find_slots instead.",
     {
       menu: z.array(Service).describe("Salon service menu"),
       service: z.string().describe("Service to quote"),
       add_ons: z.array(z.string()).optional().describe("Add-on service names"),
     },
-    { title: "Quote service", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Quote service", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => quoteService(a)),
   );
 
   server.tool(
     "compare_salons",
-    "Rank 2-6 salons from your price, rating and distance numbers: 50% rating, 30% price, 20% distance.",
+    "Rank 2-6 salons by price, rating, and distance. Use when you have multiple salon options and need to decide based on these factors. Do NOT use when you need to find available time slots; use find_slots instead.",
     {
       salons: z.array(z.object({
         name: z.string().describe("Salon name"),
@@ -85,13 +85,13 @@ function buildServer(): McpServer {
         distance_min: z.number().describe("Travel minutes"),
       })).describe("Salons to compare"),
     },
-    { title: "Compare salons", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Compare salons", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => compareSalons(a)),
   );
 
   server.tool(
     "build_booking_request",
-    "Draft a booking-request message to send a salon: service, date, time, name and party size. Draft only, never sent.",
+    "Create a booking-request message for a salon. Use when you need to draft a request before confirming availability. Do NOT use when checking available time slots; use find_slots instead.",
     {
       service: z.string().describe("Service to book"),
       date: z.string().describe("Date YYYY-MM-DD"),
@@ -100,31 +100,31 @@ function buildServer(): McpServer {
       phone: z.string().optional().describe("Callback number"),
       party_size: z.number().optional().describe("People, 1-6, default 1"),
     },
-    { title: "Build booking request", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Build booking request", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => buildBookingRequest(a)),
   );
 
   server.tool(
     "rebook_schedule",
-    "Compute the next N rebook dates every K weeks after a last visit.",
+    "Calculate N rebook dates every K weeks after a last visit. Use when planning future appointments; NOT for finding available slots, use find_slots instead.",
     {
       last_visit: z.string().describe("Last visit YYYY-MM-DD"),
       every_weeks: z.number().optional().describe("Interval in weeks, 1-26, default 6"),
       count: z.number().optional().describe("How many dates, 1-12, default 4"),
     },
-    { title: "Rebook schedule", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Rebook schedule", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => rebookSchedule(a)),
   );
 
   server.tool(
     "appointment_reminders",
-    "Compute reminder datetimes before an appointment start from lead times in hours.",
+    "Calculate reminder times before an appointment starts. Use when you need to notify customers of upcoming appointments. Do NOT use when you need to find available time slots; use find_slots instead.",
     {
       service: z.string().describe("Service booked"),
       starts_at: z.string().describe("Appointment start, ISO datetime"),
       lead_hours: z.array(z.number()).optional().describe("Lead times in hours, default [24, 2]"),
     },
-    { title: "Appointment reminders", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Appointment reminders", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => appointmentReminders(a)),
   );
 

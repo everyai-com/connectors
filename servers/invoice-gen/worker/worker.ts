@@ -4,7 +4,7 @@ import { CURRENCIES, calculateTotals, createInvoice, formatInvoicePlain } from "
 interface Env { API_KEY?: string; OPENAI_APPS_CHALLENGE_TOKEN?: string; }
 const VERSION = "1.0.0";
 const MAX_BODY = 1024 * 1024;
-const ANNOT = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+const ANNOT = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 
 type A = Record<string, unknown>;
 const req = (a: A, k: string, t: string): never | unknown => {
@@ -18,29 +18,202 @@ const opt = (a: A, k: string) => a[k] as never;
 
 const TOOLS = [
   { name: "create_invoice", title: "Create invoice",
-    description: "Generate a complete invoice (number, dates, totals) from business, client and line items. Nothing stored.",
+    description: "Create an invoice for a business-client transaction. Use when needing a full invoice document. Do NOT use for calculating totals only; use calculate_totals instead.",
     inputSchema: { type: "object", properties: {
-      business_name: { type: "string" }, client_name: { type: "string" },
-      items: { type: "array", items: { type: "object", properties: { description: { type: "string" }, quantity: { type: "number" }, unit_price: { type: "number" } }, required: ["description", "quantity", "unit_price"] } },
-      currency: { type: "string" }, tax_rate_pct: { type: "number" }, discount_pct: { type: "number" },
-      invoice_number: { type: "string" }, notes: { type: "string" }, due_in_days: { type: "number" },
+      business_name: { description: "The name of the business issuing the invoice", type: "string" }, client_name: { description: "The name of the client receiving the invoice", type: "string" },
+      items: { description: "Array of objects, each with name, quantity, and unit_price", type: "array", items: { type: "object", properties: { description: { type: "string" }, quantity: { type: "number" }, unit_price: { type: "number" } }, required: ["description", "quantity", "unit_price"] } },
+      currency: { description: "Currency code for the invoice, e.g. USD, EUR", type: "string" }, tax_rate_pct: { description: "Tax rate as a percent, e.g. 20 for 20%", type: "number" }, discount_pct: { description: "Discount rate as a percent, e.g. 10 for 10%", type: "number" },
+      invoice_number: { description: "Unique identifier for the invoice", type: "string" }, notes: { description: "Any additional notes or comments for the invoice", type: "string" }, due_in_days: { description: "Number of days until the invoice is due", type: "number" },
     }, required: ["business_name", "client_name", "items"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "invoice_number": {
+         "type": "string",
+         "description": "The unique identifier for the invoice."
+        },
+        "business_name": {
+         "type": "string",
+         "description": "The name of the business issuing the invoice."
+        },
+        "client_name": {
+         "type": "string",
+         "description": "The name of the client receiving the invoice."
+        },
+        "invoice_date": {
+         "type": "string",
+         "format": "date",
+         "description": "The date when the invoice was created."
+        },
+        "due_date": {
+         "type": "string",
+         "format": "date",
+         "description": "The date by which the invoice should be paid."
+        },
+        "currency": {
+         "type": "string",
+         "description": "The currency in which the invoice is denominated."
+        },
+        "subtotal": {
+         "type": "number",
+         "description": "The total amount before tax and discount."
+        },
+        "tax_amount": {
+         "type": "number",
+         "description": "The amount of tax applied to the subtotal."
+        },
+        "discount_amount": {
+         "type": "number",
+         "description": "The amount of discount applied to the subtotal."
+        },
+        "total": {
+         "type": "number",
+         "description": "The final amount to be paid, after tax and discount."
+        },
+        "items": {
+         "type": "array",
+         "items": {
+          "type": "object",
+          "properties": {
+           "description": {
+            "type": "string",
+            "description": "A brief description of the item."
+           },
+           "quantity": {
+            "type": "number",
+            "description": "The quantity of the item."
+           },
+           "unit_price": {
+            "type": "number",
+            "description": "The price per unit of the item."
+           },
+           "total_price": {
+            "type": "number",
+            "description": "The total price for the quantity of the item."
+           }
+          },
+          "required": [
+           "description",
+           "quantity",
+           "unit_price",
+           "total_price"
+          ]
+         },
+         "description": "The list of items included in the invoice."
+        },
+        "notes": {
+         "type": "string",
+         "description": "Any additional notes or comments related to the invoice."
+        }
+       },
+       "required": [
+        "invoice_number",
+        "business_name",
+        "client_name",
+        "invoice_date",
+        "due_date",
+        "currency",
+        "subtotal",
+        "tax_amount",
+        "discount_amount",
+        "total",
+        "items"
+       ]
+      },
     run: (a: A) => createInvoice({ business_name: req(a, "business_name", "str") as string, client_name: req(a, "client_name", "str") as string, items: req(a, "items", "arr") as never, currency: opt(a, "currency"), tax_rate_pct: opt(a, "tax_rate_pct"), discount_pct: opt(a, "discount_pct"), invoice_number: opt(a, "invoice_number"), notes: opt(a, "notes"), due_in_days: opt(a, "due_in_days") }) },
   { name: "calculate_totals", title: "Calculate totals",
-    description: "Subtotal, discount, tax and total for line items.",
-    inputSchema: { type: "object", properties: { items: { type: "array" }, tax_rate_pct: { type: "number" }, discount_pct: { type: "number" } }, required: ["items"] },
+    description: "Calculate totals for a list of items. Use when needing subtotal, discount, tax, and total. Do NOT use for creating invoices; use create_invoice instead.",
+    inputSchema: { type: "object", properties: { items: { description: "List of items, each with name, quantity, and price", type: "array" }, tax_rate_pct: { description: "Tax rate as a percent, e.g. 8 for 8%", type: "number" }, discount_pct: { description: "Discount rate as a percent, e.g. 10 for 10%", type: "number" } }, required: ["items"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "subtotal": {
+         "type": "number",
+         "description": "The sum of all item prices before any discounts or taxes."
+        },
+        "discount_amount": {
+         "type": "number",
+         "description": "The total discount applied to the subtotal."
+        },
+        "tax_amount": {
+         "type": "number",
+         "description": "The total tax applied to the subtotal after discount."
+        },
+        "total": {
+         "type": "number",
+         "description": "The final amount after applying discount and tax to the subtotal."
+        }
+       },
+       "required": [
+        "subtotal",
+        "discount_amount",
+        "tax_amount",
+        "total"
+       ]
+      },
     run: (a: A) => calculateTotals(req(a, "items", "arr") as never, (a.tax_rate_pct as number) ?? 0, (a.discount_pct as number) ?? 0) },
   { name: "supported_currencies", title: "Supported currencies",
-    description: "List supported invoice currencies with symbols.",
+    description: "List all supported invoice currencies. Use when setting up invoices; NOT for real-time currency conversion. Use calculate_totals for that.",
     inputSchema: { type: "object", properties: {} },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "results": {
+         "type": "array",
+         "description": "List of supported currencies entries.",
+         "items": {
+          "type": "object",
+          "properties": {
+           "currencyCode": {
+            "type": "string",
+            "description": "The ISO 4217 currency code."
+           },
+           "currencySymbol": {
+            "type": "string",
+            "description": "The symbol used to represent the currency."
+           },
+           "currencyName": {
+            "type": "string",
+            "description": "The full name of the currency."
+           },
+           "decimalPlaces": {
+            "type": "integer",
+            "description": "The number of decimal places used by the currency."
+           }
+          },
+          "required": [
+           "currencyCode",
+           "currencySymbol",
+           "currencyName",
+           "decimalPlaces"
+          ]
+         }
+        }
+       },
+       "required": [
+        "results"
+       ]
+      },
     run: () => ({ currencies: CURRENCIES }) },
   { name: "render_invoice_text", title: "Render invoice text",
-    description: "Rebuild + render an invoice as plain text (same inputs as create_invoice).",
+    description: "Render an invoice as plain text for emailing. Use when sending invoices via email or text. NOT for generating PDFs; use render_invoice_pdf instead.",
     inputSchema: { type: "object", properties: {
-      business_name: { type: "string" }, client_name: { type: "string" }, items: { type: "array" },
-      currency: { type: "string" }, tax_rate_pct: { type: "number" }, discount_pct: { type: "number" },
-      invoice_number: { type: "string" }, notes: { type: "string" }, due_in_days: { type: "number" },
+      business_name: { description: "The business name for this request.", type: "string" }, client_name: { description: "The client name for this request.", type: "string" }, items: { description: "List of items values.", type: "array" },
+      currency: { description: "Three-letter ISO currency code (e.g. USD).", type: "string" }, tax_rate_pct: { description: "Tax rate pct as a number (e.g. 8.5 means 8.5%).", type: "number" }, discount_pct: { description: "Discount pct as a number (e.g. 8.5 means 8.5%).", type: "number" },
+      invoice_number: { description: "The invoice number for this request.", type: "string" }, notes: { description: "The notes for this request.", type: "string" }, due_in_days: { description: "The due in days as a number.", type: "number" },
     }, required: ["business_name", "client_name", "items"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "invoice_text": {
+         "type": "string",
+         "description": "The rendered invoice as plain text."
+        }
+       },
+       "required": [
+        "invoice_text"
+       ]
+      },
     run: (a: A) => ({ text: formatInvoicePlain(createInvoice({ business_name: req(a, "business_name", "str") as string, client_name: req(a, "client_name", "str") as string, items: req(a, "items", "arr") as never, currency: opt(a, "currency"), tax_rate_pct: opt(a, "tax_rate_pct"), discount_pct: opt(a, "discount_pct"), invoice_number: opt(a, "invoice_number"), notes: opt(a, "notes"), due_in_days: opt(a, "due_in_days") })) }) },
 ];
 
@@ -210,7 +383,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
       ttlMs: 3600000,
       cacheScope: "public",
     } }, 200, cors(request));
-    if (body.method === "tools/list") return json({ jsonrpc: "2.0", id, result: { tools: TOOLS.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema, annotations: { title: t.title, ...ANNOT } })) } }, 200, cors(request));
+    if (body.method === "tools/list") return json({ jsonrpc: "2.0", id, result: { tools: TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, outputSchema: t.outputSchema, annotations: { ...ANNOT } })) } }, 200, cors(request));
     if (body.method === "tools/call") {
       const tool = TOOLS.find((t) => t.name === body.params?.name);
       if (!tool) return json({ jsonrpc: "2.0", id, error: { code: -32602, message: `unknown tool '${body.params?.name}'` } }, 200, cors(request));

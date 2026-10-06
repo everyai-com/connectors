@@ -47,7 +47,7 @@ function buildServer(): McpServer {
 
   server.tool(
     "find_classes",
-    "Search a weekly class schedule by day, class type, max intensity or time window.",
+    "Search a weekly class schedule by day, class type, max intensity or time window. Use when you need to find available classes. Do NOT use when you need to find the cost of a class, use quote_week.",
     {
       schedule: z.array(Session).describe("Weekly schedule to search"),
       day: z.string().optional().describe("Filter to a weekday"),
@@ -56,36 +56,36 @@ function buildServer(): McpServer {
       after: z.string().optional().describe("Only classes at or after HH:MM"),
       before: z.string().optional().describe("Only classes at or before HH:MM"),
     },
-    { title: "Find classes", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Find classes", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => findClasses(a)),
   );
 
   server.tool(
     "quote_week",
-    "Quote a week of classes at a drop-in rate: class count and week total.",
+    "Calculate the cost of a week of classes at a drop-in rate. Use when estimating weekly drop-in costs; avoid when evaluating membership break-even points, use membership_break_even instead.",
     {
       schedule: z.array(Session).describe("This week's classes"),
       drop_in_usd: z.number().describe("Drop-in price per class in USD"),
     },
-    { title: "Quote week", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Quote week", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => quoteWeek(a)),
   );
 
   server.tool(
     "membership_break_even",
-    "Compute how many classes a month justify a membership over drop-ins, with an optional comparison at your volume.",
+    "Calculate the break-even number of monthly classes for memberships vs. drop-ins. Use when evaluating membership pricing strategies. Do NOT use when forecasting weekly class attendance (use week_plan).",
     {
       drop_in_usd: z.number().describe("Drop-in price per class in USD"),
       membership_usd: z.number().describe("Monthly membership price in USD"),
       classes_per_month: z.number().optional().describe("Your monthly volume for a direct comparison"),
     },
-    { title: "Membership break-even", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Membership break-even", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => membershipBreakEven(a)),
   );
 
   server.tool(
     "build_booking_request",
-    "Draft a booking-request message to send a studio: class, date, time, name and party size. Draft only, never sent.",
+    "Create a booking-request message for a studio class. Use when you need to draft a request for a specific class. Do NOT use when you need to find available classes, use find_classes instead.",
     {
       class_name: z.string().describe("Class to book"),
       date: z.string().describe("Date YYYY-MM-DD"),
@@ -93,13 +93,13 @@ function buildServer(): McpServer {
       name: z.string().describe("Your name"),
       party_size: z.number().optional().describe("Spots to reserve, 1-10, default 1"),
     },
-    { title: "Build booking request", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Build booking request", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => buildBookingRequest(a)),
   );
 
   server.tool(
     "class_reminders",
-    "Compute reminder datetimes before each class start from lead times in hours.",
+    "Schedule reminders before each class starts. Use when you need to notify students in advance. Do NOT use when you need to find available classes, use find_classes.",
     {
       sessions: z.array(z.object({
         name: z.string().describe("Class name"),
@@ -107,19 +107,19 @@ function buildServer(): McpServer {
       })).describe("Upcoming classes"),
       lead_hours: z.array(z.number()).optional().describe("Lead times in hours, default [12, 1]"),
     },
-    { title: "Class reminders", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Class reminders", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => classReminders(a)),
   );
 
   server.tool(
     "week_plan",
-    "Build a balanced week plan from a schedule for a goal: balanced, cardio or strength, capped at N classes.",
+    "Generate a balanced week plan from a schedule for a goal. Use when you need a structured weekly plan. Do NOT use when you need to find available classes, use find_classes.",
     {
       schedule: z.array(Session).describe("Weekly schedule to plan from"),
       goal: z.string().optional().describe("balanced, cardio or strength; default balanced"),
       max_classes: z.number().optional().describe("Max classes, 1-14, default 5"),
     },
-    { title: "Week plan", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Week plan", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => weekPlan(a)),
   );
 

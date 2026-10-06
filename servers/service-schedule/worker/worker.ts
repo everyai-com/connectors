@@ -4,7 +4,7 @@ import { dueServices, seasonalChecklist, serviceCostEstimate, serviceTimeline } 
 interface Env { API_KEY?: string; OPENAI_APPS_CHALLENGE_TOKEN?: string; }
 const VERSION = "1.0.0";
 const MAX_BODY = 1024 * 1024;
-const ANNOT = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+const ANNOT = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 
 type A = Record<string, unknown>;
 const req = (a: A, k: string, t: string): never | unknown => {
@@ -17,7 +17,7 @@ const req = (a: A, k: string, t: string): never | unknown => {
 
 const TOOLS = [
   { name: "due_services", title: "Due services",
-    description: "Compute which scheduled maintenance services (oil, tires, brakes, filters, fluids, plugs, transmission, battery) are due, soon or ok from the current odometer and optional per-service history. Returns km and month distances to each due point.",
+    description: "Calculate the due status of scheduled maintenance services from the current odometer and optional per-service history. Use when you need to know the maintenance status of a vehicle. Do NOT use when you need to estimate the cost of these services; use service_cost_estimate instead.",
     inputSchema: { type: "object", properties: {
       odometer: { type: "number", description: "Current odometer reading" },
       unit: { type: "string", enum: ["km", "mi"], description: "Unit of the odometer values, default km" },
@@ -29,38 +29,412 @@ const TOOLS = [
         months_ago: { type: "number", description: "Months since this service was last done" },
       }, required: ["id"] }, description: "Optional per-service history" },
     }, required: ["odometer"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "oil_change": { description: "The oil change returned by the tool.",
+         "type": "object",
+         "properties": {
+          "status": {
+           "type": "string",
+           "enum": [
+            "due",
+            "soon",
+            "ok"
+           ],
+           "description": "The due status of the oil change service"
+          },
+          "km_to_due": {
+           "type": "number",
+           "description": "The distance in kilometers to the next due oil change"
+          },
+          "months_to_due": {
+           "type": "number",
+           "description": "The number of months to the next due oil change"
+          }
+         },
+         "required": [
+          "status",
+          "km_to_due",
+          "months_to_due"
+         ]
+        },
+        "tire_rotation": { description: "The tire rotation returned by the tool.",
+         "type": "object",
+         "properties": {
+          "status": {
+           "type": "string",
+           "enum": [
+            "due",
+            "soon",
+            "ok"
+           ],
+           "description": "The due status of the tire rotation service"
+          },
+          "km_to_due": {
+           "type": "number",
+           "description": "The distance in kilometers to the next due tire rotation"
+          },
+          "months_to_due": {
+           "type": "number",
+           "description": "The number of months to the next due tire rotation"
+          }
+         },
+         "required": [
+          "status",
+          "km_to_due",
+          "months_to_due"
+         ]
+        },
+        "brake_inspection": { description: "The brake inspection returned by the tool.",
+         "type": "object",
+         "properties": {
+          "status": {
+           "type": "string",
+           "enum": [
+            "due",
+            "soon",
+            "ok"
+           ],
+           "description": "The due status of the brake inspection service"
+          },
+          "km_to_due": {
+           "type": "number",
+           "description": "The distance in kilometers to the next due brake inspection"
+          },
+          "months_to_due": {
+           "type": "number",
+           "description": "The number of months to the next due brake inspection"
+          }
+         },
+         "required": [
+          "status",
+          "km_to_due",
+          "months_to_due"
+         ]
+        },
+        "air_filter_replacement": { description: "The air filter replacement returned by the tool.",
+         "type": "object",
+         "properties": {
+          "status": {
+           "type": "string",
+           "enum": [
+            "due",
+            "soon",
+            "ok"
+           ],
+           "description": "The due status of the air filter replacement service"
+          },
+          "km_to_due": {
+           "type": "number",
+           "description": "The distance in kilometers to the next due air filter replacement"
+          },
+          "months_to_due": {
+           "type": "number",
+           "description": "The number of months to the next due air filter replacement"
+          }
+         },
+         "required": [
+          "status",
+          "km_to_due",
+          "months_to_due"
+         ]
+        },
+        "coolant_flush": { description: "The coolant flush returned by the tool.",
+         "type": "object",
+         "properties": {
+          "status": {
+           "type": "string",
+           "enum": [
+            "due",
+            "soon",
+            "ok"
+           ],
+           "description": "The due status of the coolant flush service"
+          },
+          "km_to_due": {
+           "type": "number",
+           "description": "The distance in kilometers to the next due coolant flush"
+          },
+          "months_to_due": {
+           "type": "number",
+           "description": "The number of months to the next due coolant flush"
+          }
+         },
+         "required": [
+          "status",
+          "km_to_due",
+          "months_to_due"
+         ]
+        },
+        "spark_plug_replacement": { description: "The spark plug replacement returned by the tool.",
+         "type": "object",
+         "properties": {
+          "status": {
+           "type": "string",
+           "enum": [
+            "due",
+            "soon",
+            "ok"
+           ],
+           "description": "The due status of the spark plug replacement service"
+          },
+          "km_to_due": {
+           "type": "number",
+           "description": "The distance in kilometers to the next due spark plug replacement"
+          },
+          "months_to_due": {
+           "type": "number",
+           "description": "The number of months to the next due spark plug replacement"
+          }
+         },
+         "required": [
+          "status",
+          "km_to_due",
+          "months_to_due"
+         ]
+        },
+        "transmission_service": { description: "The transmission service returned by the tool.",
+         "type": "object",
+         "properties": {
+          "status": {
+           "type": "string",
+           "enum": [
+            "due",
+            "soon",
+            "ok"
+           ],
+           "description": "The due status of the transmission service"
+          },
+          "km_to_due": {
+           "type": "number",
+           "description": "The distance in kilometers to the next due transmission service"
+          },
+          "months_to_due": {
+           "type": "number",
+           "description": "The number of months to the next due transmission service"
+          }
+         },
+         "required": [
+          "status",
+          "km_to_due",
+          "months_to_due"
+         ]
+        },
+        "battery_replacement": { description: "The battery replacement returned by the tool.",
+         "type": "object",
+         "properties": {
+          "status": {
+           "type": "string",
+           "enum": [
+            "due",
+            "soon",
+            "ok"
+           ],
+           "description": "The due status of the battery replacement service"
+          },
+          "km_to_due": {
+           "type": "number",
+           "description": "The distance in kilometers to the next due battery replacement"
+          },
+          "months_to_due": {
+           "type": "number",
+           "description": "The number of months to the next due battery replacement"
+          }
+         },
+         "required": [
+          "status",
+          "km_to_due",
+          "months_to_due"
+         ]
+        }
+       },
+       "required": [
+        "oil_change",
+        "tire_rotation",
+        "brake_inspection",
+        "air_filter_replacement",
+        "coolant_flush",
+        "spark_plug_replacement",
+        "transmission_service",
+        "battery_replacement"
+       ]
+      },
     run: (a: A) => {
       req(a, "odometer", "num");
       return dueServices(a as unknown as Parameters<typeof dueServices>[0]);
     } },
   { name: "service_cost_estimate", title: "Service cost estimate",
-    description: "Estimate typical US parts-and-labor price ranges for a chosen list of maintenance services at a chosen shop tier (economy, mid or luxury). Returns per-service ranges and a total range.",
+    description: "Estimate typical US parts-and-labor price ranges for a chosen list of maintenance services at a chosen shop tier. Use when needing a cost estimate for a list of services. Do NOT use when needing a list of due services; use due_services instead.",
     inputSchema: { type: "object", properties: {
       services: { type: "array", items: { type: "string" }, description: "Service ids to price, e.g. oil_change" },
       tier: { type: "string", enum: ["economy", "mid", "luxury"], description: "Shop tier, default mid" },
     }, required: ["services"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "estimates": {
+         "type": "array",
+         "description": "List of estimated price ranges for each service.",
+         "items": {
+          "type": "object",
+          "properties": {
+           "service": {
+            "type": "string",
+            "description": "The service id, e.g. oil_change."
+           },
+           "range": {
+            "type": "object",
+            "description": "The estimated price range for the service.",
+            "properties": {
+             "min": {
+              "type": "number",
+              "description": "The minimum estimated price."
+             },
+             "max": {
+              "type": "number",
+              "description": "The maximum estimated price."
+             }
+            },
+            "required": [
+             "min",
+             "max"
+            ]
+           }
+          },
+          "required": [
+           "service",
+           "range"
+          ]
+         }
+        },
+        "total": {
+         "type": "object",
+         "description": "The estimated total price range for all services.",
+         "properties": {
+          "min": {
+           "type": "number",
+           "description": "The minimum estimated total price."
+          },
+          "max": {
+           "type": "number",
+           "description": "The maximum estimated total price."
+          }
+         },
+         "required": [
+          "min",
+          "max"
+         ]
+        }
+       },
+       "required": [
+        "estimates",
+        "total"
+       ]
+      },
     run: (a: A) => {
       req(a, "services", "arr");
       return serviceCostEstimate(a as unknown as Parameters<typeof serviceCostEstimate>[0]);
     } },
   { name: "service_timeline", title: "Service timeline",
-    description: "Project the next 12 months of driving from a monthly km rate and list which maintenance services fall due in each month, with the projected odometer at that month.",
+    description: "Project the next 12 months of driving to list maintenance services due. Use when planning long-term maintenance, NOT when checking immediate service needs (use due_services).",
     inputSchema: { type: "object", properties: {
       odometer: { type: "number", description: "Current odometer reading" },
       unit: { type: "string", enum: ["km", "mi"], description: "Unit of the odometer values, default km" },
       km_per_month: { type: "number", description: "Average km driven per month (100-10000)" },
       months_since_last_oil: { type: "number", description: "Months since the last oil change; time baseline when no other history is given" },
     }, required: ["odometer", "km_per_month"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "results": {
+         "type": "array",
+         "description": "List of service timeline entries.",
+         "items": {
+          "type": "object",
+          "properties": {
+           "month": {
+            "type": "integer",
+            "description": "The month in the 12-month projection (1-12)"
+           },
+           "odometer": {
+            "type": "number",
+            "description": "Projected odometer reading at the start of the month"
+           },
+           "services_due": {
+            "type": "array",
+            "description": "List of maintenance services due in the month",
+            "items": {
+             "type": "string",
+             "description": "Name of the service"
+            }
+           }
+          },
+          "required": [
+           "month",
+           "odometer",
+           "services_due"
+          ]
+         }
+        }
+       },
+       "required": [
+        "results"
+       ]
+      },
     run: (a: A) => {
       req(a, "odometer", "num"); req(a, "km_per_month", "num");
       return serviceTimeline(a as unknown as Parameters<typeof serviceTimeline>[0]);
     } },
   { name: "seasonal_checklist", title: "Seasonal checklist",
-    description: "Seasonal car checklist for spring, summer, fall or winter, adjusted for a hot, cold or mixed climate. Groups practical preventive checks by area (battery, tires, fluids, visibility, safety kit).",
+    description: "Generate a seasonal car checklist for spring, summer, fall or winter. Use when preparing for seasonal driving conditions, NOT when estimating service costs (use service_cost_estimate).",
     inputSchema: { type: "object", properties: {
       season: { type: "string", enum: ["spring", "summer", "fall", "winter"], description: "Season to plan for" },
       climate: { type: "string", enum: ["hot", "cold", "mixed"], description: "Local climate, default mixed" },
     }, required: ["season"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "season": {
+         "type": "string",
+         "description": "The season for which the checklist is generated"
+        },
+        "climate": {
+         "type": "string",
+         "description": "The climate for which the checklist is tailored"
+        },
+        "checklist": {
+         "type": "array",
+         "description": "List of checks grouped by area",
+         "items": {
+          "type": "object",
+          "properties": {
+           "area": {
+            "type": "string",
+            "description": "The area of the car to check (e.g., battery, tires)"
+           },
+           "checks": {
+            "type": "array",
+            "description": "List of specific checks to perform in this area",
+            "items": {
+             "type": "string",
+             "description": "A specific check to perform"
+            }
+           }
+          },
+          "required": [
+           "area",
+           "checks"
+          ]
+         }
+        }
+       },
+       "required": [
+        "season",
+        "climate",
+        "checklist"
+       ]
+      },
     run: (a: A) => {
       req(a, "season", "str");
       return seasonalChecklist(a as unknown as Parameters<typeof seasonalChecklist>[0]);
@@ -231,7 +605,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
       ttlMs: 3600000,
       cacheScope: "public",
     } }, 200, cors(request));
-    if (body.method === "tools/list") return json({ jsonrpc: "2.0", id, result: { tools: TOOLS.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema, annotations: { title: t.title, ...ANNOT } })) } }, 200, cors(request));
+    if (body.method === "tools/list") return json({ jsonrpc: "2.0", id, result: { tools: TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, outputSchema: t.outputSchema, annotations: { ...ANNOT } })) } }, 200, cors(request));
     if (body.method === "tools/call") {
       const tool = TOOLS.find((t) => t.name === body.params?.name);
       if (!tool) return json({ jsonrpc: "2.0", id, error: { code: -32602, message: `unknown tool '${body.params?.name}'` } }, 200, cors(request));

@@ -4,7 +4,7 @@ import { rotationPlan, settleUp, splitCosts, splitSeries } from "../../mcp-serve
 interface Env { API_KEY?: string; OPENAI_APPS_CHALLENGE_TOKEN?: string; }
 const VERSION = "1.0.0";
 const MAX_BODY = 1024 * 1024;
-const ANNOT = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+const ANNOT = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 
 type A = Record<string, unknown>;
 const req = (a: A, k: string, t: string): never | unknown => {
@@ -17,49 +17,330 @@ const req = (a: A, k: string, t: string): never | unknown => {
 
 const TOOLS = [
   { name: "split_costs", title: "Split costs",
-    description: "Split one total cost across players (equally or by relative weights) and show who owes what plus the fewest settle-up payments.",
+    description: "Split a total cost among players when you need to divide expenses fairly. Not for tracking ongoing series; use `split_series` instead.",
     inputSchema: { type: "object", properties: {
       total_cost: { type: "number", description: "Total court/venue cost" },
       participants: { type: "array", items: { type: "object", properties: { name: { type: "string" }, paid: { type: "number" } }, required: ["name"] }, description: "Players in the split" },
       shares: { type: "array", items: { type: "number" }, description: "Optional relative weights, one per participant" },
       currency: { type: "string", description: "Currency code for display, default USD" },
     }, required: ["total_cost", "participants"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "total_cost": {
+         "type": "number",
+         "description": "The total cost that was split."
+        },
+        "currency": {
+         "type": "string",
+         "description": "The currency code used for display."
+        },
+        "settlements": {
+         "type": "array",
+         "items": {
+          "type": "object",
+          "properties": {
+           "payer": {
+            "type": "string",
+            "description": "The name of the person making the payment."
+           },
+           "payee": {
+            "type": "string",
+            "description": "The name of the person receiving the payment."
+           },
+           "amount": {
+            "type": "number",
+            "description": "The amount to be paid."
+           }
+          },
+          "required": [
+           "payer",
+           "payee",
+           "amount"
+          ]
+         },
+         "description": "The list of settle-up payments to balance the costs."
+        },
+        "individual_costs": {
+         "type": "array",
+         "items": {
+          "type": "object",
+          "properties": {
+           "name": {
+            "type": "string",
+            "description": "The name of the participant."
+           },
+           "amount": {
+            "type": "number",
+            "description": "The amount each participant owes."
+           }
+          },
+          "required": [
+           "name",
+           "amount"
+          ]
+         },
+         "description": "The cost owed by each participant."
+        }
+       },
+       "required": [
+        "total_cost",
+        "currency",
+        "settlements",
+        "individual_costs"
+       ]
+      },
     run: (a: A) => {
       req(a, "total_cost", "num"); req(a, "participants", "arr");
       return splitCosts(a as unknown as Parameters<typeof splitCosts>[0]);
     } },
   { name: "settle_up", title: "Settle up",
-    description: "Given who paid what for a total cost, compute balances and the minimal set of payments to settle everyone.",
+    description: "Calculate the minimal payments to settle up balances among participants. Use when you need to resolve debts after a shared expense. Do NOT use when you need to plan a series of payments over time, use rotation_plan instead.",
     inputSchema: { type: "object", properties: {
-      total_cost: { type: "number" },
-      participants: { type: "array", items: { type: "object", properties: { name: { type: "string" }, paid: { type: "number" } }, required: ["name"] } },
-      shares: { type: "array", items: { type: "number" } },
-      currency: { type: "string" },
+      total_cost: { description: "Total amount spent, as a number", type: "number" },
+      participants: { description: "List of participant names, as strings in an array", type: "array", items: { type: "object", properties: { name: { type: "string" }, paid: { type: "number" } }, required: ["name"] } },
+      shares: { description: "Each participant's share of the total cost, as numbers in an array", type: "array", items: { type: "number" } },
+      currency: { description: "Currency code, as a string, ISO 4217", type: "string" },
     }, required: ["total_cost", "participants"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "balances": {
+         "type": "array",
+         "description": "The net balance for each participant after settling up.",
+         "items": {
+          "type": "object",
+          "properties": {
+           "name": {
+            "type": "string",
+            "description": "The name of the participant."
+           },
+           "balance": {
+            "type": "number",
+            "description": "The net balance for the participant."
+           }
+          },
+          "required": [
+           "name",
+           "balance"
+          ]
+         }
+        },
+        "transactions": {
+         "type": "array",
+         "description": "The minimal set of transactions to settle up all balances.",
+         "items": {
+          "type": "object",
+          "properties": {
+           "from": {
+            "type": "string",
+            "description": "The name of the participant paying."
+           },
+           "to": {
+            "type": "string",
+            "description": "The name of the participant receiving."
+           },
+           "amount": {
+            "type": "number",
+            "description": "The amount being transferred."
+           }
+          },
+          "required": [
+           "from",
+           "to",
+           "amount"
+          ]
+         }
+        }
+       },
+       "required": [
+        "balances",
+        "transactions"
+       ]
+      },
     run: (a: A) => {
       req(a, "total_cost", "num"); req(a, "participants", "arr");
       return settleUp(a as unknown as Parameters<typeof settleUp>[0]);
     } },
   { name: "split_series", title: "Split series",
-    description: "Account for recurring sessions where different players attend different days: each session splits only among its attendees; returns who owes what and settle-up payments.",
+    description: "Split a series of sessions among attendees; use when sessions are recurring with varying attendees, not when splitting a single event among all players (use settle_up).",
     inputSchema: { type: "object", properties: {
-      sessions: { type: "array", items: { type: "object", properties: { label: { type: "string" }, cost: { type: "number" }, attendees: { type: "array", items: { type: "string" } } }, required: ["cost", "attendees"] } },
-      players: { type: "array", items: { type: "string" } },
-      payments: { type: "array", items: { type: "object", properties: { name: { type: "string" }, paid: { type: "number" } }, required: ["name"] } },
-      currency: { type: "string" },
+      sessions: { description: "Array of session objects, each with date, attendees, and cost", type: "array", items: { type: "object", properties: { label: { type: "string" }, cost: { type: "number" }, attendees: { type: "array", items: { type: "string" } } }, required: ["cost", "attendees"] } },
+      players: { description: "Array of player names or IDs", type: "array", items: { type: "string" } },
+      payments: { description: "Array of payment objects, each with payer, payee, and amount", type: "array", items: { type: "object", properties: { name: { type: "string" }, paid: { type: "number" } }, required: ["name"] } },
+      currency: { description: "Currency code (ISO 4217) for all transactions", type: "string" },
     }, required: ["sessions"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "summary": {
+         "type": "object",
+         "description": "Summary of the total amounts owed and paid.",
+         "properties": {
+          "totalCost": {
+           "type": "number",
+           "description": "The total cost of all sessions."
+          },
+          "totalPaid": {
+           "type": "number",
+           "description": "The total amount paid by all players."
+          },
+          "totalOwed": {
+           "type": "number",
+           "description": "The total amount still owed after payments."
+          }
+         },
+         "required": [
+          "totalCost",
+          "totalPaid",
+          "totalOwed"
+         ]
+        },
+        "settlements": {
+         "type": "array",
+         "description": "List of individual settlements between players.",
+         "items": {
+          "type": "object",
+          "properties": {
+           "from": {
+            "type": "string",
+            "description": "The name of the player who owes money."
+           },
+           "to": {
+            "type": "string",
+            "description": "The name of the player who is owed money."
+           },
+           "amount": {
+            "type": "number",
+            "description": "The amount of money to be transferred from 'from' to 'to'."
+           },
+           "currency": {
+            "type": "string",
+            "description": "The currency in which the amount is specified."
+           }
+          },
+          "required": [
+           "from",
+           "to",
+           "amount",
+           "currency"
+          ]
+         }
+        },
+        "individualOwed": {
+         "type": "object",
+         "description": "Amount each player owes after all settlements.",
+         "additionalProperties": {
+          "type": "number"
+         }
+        },
+        "individualPaid": {
+         "type": "object",
+         "description": "Amount each player has paid.",
+         "additionalProperties": {
+          "type": "number"
+         }
+        }
+       },
+       "required": [
+        "summary",
+        "settlements",
+        "individualOwed",
+        "individualPaid"
+       ]
+      },
     run: (a: A) => {
       req(a, "sessions", "arr");
       return splitSeries(a as unknown as Parameters<typeof splitSeries>[0]);
     } },
   { name: "rotation_plan", title: "Rotation plan",
-    description: "Plan fair rotations for pickup games: who plays each round, who sits out, and games-played balance across the roster.",
+    description: "Generate a balanced rotation plan for pickup games. Use when you need to schedule multiple rounds with equal playtime. Do NOT use when you need to split a series of games between two teams, use split_series.",
     inputSchema: { type: "object", properties: {
       players: { type: "array", items: { type: "string" }, description: "Roster names" },
       capacity: { type: "number", description: "Players per court (2 singles, 4 doubles)" },
-      courts: { type: "number" },
-      rounds: { type: "number" },
+      courts: { description: "Number of courts available for the rotation plan", type: "number" },
+      rounds: { description: "Number of rounds to be scheduled in the rotation plan", type: "number" },
     }, required: ["players", "capacity", "rounds"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "rounds": {
+         "type": "array",
+         "description": "List of rounds with players assigned to each court",
+         "items": {
+          "type": "object",
+          "properties": {
+           "roundNumber": {
+            "type": "number",
+            "description": "The round number"
+           },
+           "courts": {
+            "type": "array",
+            "description": "List of courts with players assigned to each",
+            "items": {
+             "type": "object",
+             "properties": {
+              "courtNumber": {
+               "type": "number",
+               "description": "The court number"
+              },
+              "players": {
+               "type": "array",
+               "description": "List of players assigned to this court",
+               "items": {
+                "type": "string"
+               }
+              }
+             },
+             "required": [
+              "courtNumber",
+              "players"
+             ]
+            }
+           }
+          },
+          "required": [
+           "roundNumber",
+           "courts"
+          ]
+         }
+        },
+        "balance": {
+         "type": "object",
+         "description": "Balance of games played by each player",
+         "properties": {
+          "players": {
+           "type": "array",
+           "description": "List of players with their respective games played",
+           "items": {
+            "type": "object",
+            "properties": {
+             "name": {
+              "type": "string",
+              "description": "The player's name"
+             },
+             "gamesPlayed": {
+              "type": "number",
+              "description": "The number of games the player has played"
+             }
+            },
+            "required": [
+             "name",
+             "gamesPlayed"
+            ]
+           }
+          }
+         },
+         "required": [
+          "players"
+         ]
+        }
+       },
+       "required": [
+        "rounds",
+        "balance"
+       ]
+      },
     run: (a: A) => {
       req(a, "players", "arr"); req(a, "capacity", "num"); req(a, "rounds", "num");
       return rotationPlan(a as unknown as Parameters<typeof rotationPlan>[0]);
@@ -230,7 +511,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
       ttlMs: 3600000,
       cacheScope: "public",
     } }, 200, cors(request));
-    if (body.method === "tools/list") return json({ jsonrpc: "2.0", id, result: { tools: TOOLS.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema, annotations: { title: t.title, ...ANNOT } })) } }, 200, cors(request));
+    if (body.method === "tools/list") return json({ jsonrpc: "2.0", id, result: { tools: TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, outputSchema: t.outputSchema, annotations: { ...ANNOT } })) } }, 200, cors(request));
     if (body.method === "tools/call") {
       const tool = TOOLS.find((t) => t.name === body.params?.name);
       if (!tool) return json({ jsonrpc: "2.0", id, error: { code: -32602, message: `unknown tool '${body.params?.name}'` } }, 200, cors(request));

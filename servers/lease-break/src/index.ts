@@ -46,27 +46,27 @@ function buildServer(): McpServer {
 
   server.tool(
     "estimate_break_cost",
-    "Itemised estimate of what ending a lease early costs: notice-period rent, break fee, re-letting fee, rent-until-relet and deposit credit.",
+    "Calculate break cost for a lease. Use when you need a detailed breakdown of early termination fees. Do NOT use when comparing lease options; use compare_options instead.",
     BreakFields,
-    { title: "Estimate break cost", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Estimate break cost", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => estimateBreakCost(a)),
   );
 
   server.tool(
     "compare_options",
-    "Compare breaking the lease vs subletting vs staying to term: net cost of each path with assumptions and risks.",
+    "Calculate the net cost of breaking, subletting, or staying in a lease. Use when evaluating lease options; NOT when assessing legal notice requirements, use notice_letter.",
     {
       ...BreakFields,
       sublet_discount_pct: z.number().optional().describe("Discount a subtenant expects, e.g. 15 for 15%"),
       sublet_vacancy_months: z.number().optional().describe("Months before a subtenant starts"),
     },
-    { title: "Compare options", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Compare options", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => compareOptions(a)),
   );
 
   server.tool(
     "notice_letter",
-    "Draft a formal early-termination notice letter with your lease details, intended move-out date and fee acknowledgment.",
+    "Generate a formal early-termination notice letter using your lease details. Use when you're sure you want to end your lease early. Use compare_options to explore alternatives.",
     {
       tenant_name: z.string(),
       property_address: z.string(),
@@ -79,20 +79,20 @@ function buildServer(): McpServer {
       landlord_name: z.string().optional(),
       reason: z.string().optional().describe("Short reason, e.g. 'job relocation'"),
     },
-    { title: "Notice letter", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Notice letter", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => noticeLetter(a)),
   );
 
   server.tool(
     "negotiation_checklist",
-    "A negotiation plan for leaving early: what to ask the landlord, in what order, tailored to your fee, remaining months and local demand.",
+    "Generate a negotiation plan for early lease termination based on your specific situation. Use when you need a strategic approach to discuss with your landlord. Do NOT use when you need to estimate the financial cost of breaking your lease, use estimate_break_cost instead.",
     {
       break_fee_months: z.number().optional(),
       months_remaining: z.number().optional(),
       landlord_mitigates: z.boolean().optional(),
       relet_demand: z.enum(["high", "medium", "low"]).optional().describe("How easy your unit re-lets"),
     },
-    { title: "Negotiation checklist", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Negotiation checklist", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => negotiationChecklist(a)),
   );
 

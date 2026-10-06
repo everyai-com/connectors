@@ -49,66 +49,66 @@ function buildServer(): McpServer {
 
   server.tool(
     "forecast_runout",
-    "Forecast when each staple runs out from on-hand amounts and weekly use: weeks left, runout date and ok/low/out status.",
+    "Calculate runout dates for each staple from on-hand amounts and weekly use. Use when you need to plan restocking. Do NOT use when you need to compare store tiers, use compare_store_tiers.",
     {
       staples: z.array(Staple).describe("Staples with on-hand amounts and weekly use"),
       as_of: z.string().optional().describe("Reference date YYYY-MM-DD, default today"),
     },
-    { title: "Forecast runout", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Forecast runout", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => forecastRunout(a)),
   );
 
   server.tool(
     "build_restock_list",
-    "Build a restock shopping list covering N weeks ahead from on-hand amounts and weekly use.",
+    "Generate a restock shopping list for N weeks from current inventory and usage. Use when planning ahead for grocery needs. Avoid using when needing to forecast runout dates with forecast_runout.",
     {
       staples: z.array(Staple).describe("Staples with on-hand amounts and weekly use"),
       weeks_ahead: z.number().optional().describe("Weeks to cover, 1-8, default 2"),
     },
-    { title: "Build restock list", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Build restock list", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => buildRestockList(a)),
   );
 
   server.tool(
     "quote_basket",
-    "Price a basket of staples with typical US prices: per-item lines and a total. Prices are typical, not store quotes.",
+    "Price a basket of staples with typical US prices. Use when needing a quick price estimate for a list of items. Do NOT use when forecasting inventory runout; use forecast_runout instead.",
     {
       items: z.array(BasketItem).describe("Items and quantities to price"),
     },
-    { title: "Quote basket", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Quote basket", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => quoteBasket(a)),
   );
 
   server.tool(
     "compare_store_tiers",
-    "Compare what the same basket costs at budget, standard and premium store tiers, and name the cheapest.",
+    "Compare basket costs across budget, standard, and premium store tiers to find the cheapest. Use when evaluating cost savings; avoid when needing to forecast inventory with forecast_runout.",
     {
       items: z.array(BasketItem).describe("Items and quantities to compare"),
     },
-    { title: "Compare store tiers", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Compare store tiers", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => compareStoreTiers(a)),
   );
 
   server.tool(
     "suggest_swaps",
-    "Fit a basket into a budget by swapping the priciest lines for cheaper staples, biggest savings first.",
+    "Swap basket items to fit within a budget. Use when optimizing for cost, not when forecasting inventory with forecast_runout.",
     {
       items: z.array(BasketItem).describe("Items and quantities in the basket"),
       budget_usd: z.number().describe("Target budget in USD"),
     },
-    { title: "Suggest swaps", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Suggest swaps", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => suggestSwaps(a)),
   );
 
   server.tool(
     "restock_schedule",
-    "Compute the next N weekly restock dates for a weekday on or after a start date.",
+    "Calculate the next N weekly restock dates for a weekday starting from a given date. Use when planning future restocking. Avoid when needing to forecast runout dates, use forecast_runout instead.",
     {
       start_date: z.string().describe("Start date YYYY-MM-DD"),
       weekday: z.string().optional().describe("Restock weekday, default sunday"),
       count: z.number().optional().describe("How many dates, 1-12, default 4"),
     },
-    { title: "Restock schedule", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Restock schedule", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => restockSchedule(a)),
   );
 

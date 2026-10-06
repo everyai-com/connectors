@@ -11,35 +11,35 @@ import { festivalsInYear, nextFestival, festivalDetails } from "./festivals.js";
 const PORT = Number(process.env.PORT ?? 3002);
 const API_KEY = process.env.API_KEY ?? "";
 const CHALLENGE = process.env.OPENAI_APPS_CHALLENGE_TOKEN ?? "";
-const RO = { readOnlyHint: true, destructiveHint: false, openWorldHint: false } as const;
+const RO = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const;
 
 function buildServer(): McpServer {
   const server = new McpServer(
     { name: "festival-finder", version: "1.0.0" },
     { capabilities: { tools: {} }, instructions: "FestivalFinder computes Hindu festival dates (Diwali, Holi, Navratri, Shivaratri, sankrantis) for 2020-2040. Dates are computed from lunar tithi rules and approximate within a day; advise verifying muhurta-critical dates." },
   );
-  server.tool("list_festivals", "All computed Hindu festivals + sankrantis for a year (2020-2040): name, date, rule. Approximate.",
+  server.tool("list_festivals", "Retrieve all Hindu festivals and sankrantis for a specific year. Use when you need a full yearly overview; avoid when you need only the next upcoming festival, use next_festival.",
     { year: z.number() },
     { title: "List festivals", ...RO },
     async ({ year }) => {
       try { return { content: [{ type: "text", text: JSON.stringify(festivalsInYear(year)) }] }; }
       catch (e) { return { content: [{ type: "text", text: `ERROR ${e instanceof Error ? e.message : "bad year"}` }], isError: true }; }
     });
-  server.tool("next_festival", "Next festival on or after a date (YYYY-MM-DD).",
+  server.tool("next_festival", "Find the next festival on or after a specific date. Use when you need the next upcoming festival; NOT when you need a list of festivals, use list_festivals.",
     { from_date: z.string() },
     { title: "Next festival", ...RO },
     async ({ from_date }) => {
       try { return { content: [{ type: "text", text: JSON.stringify(nextFestival(from_date)) }] }; }
       catch (e) { return { content: [{ type: "text", text: `ERROR ${e instanceof Error ? e.message : "bad date"}` }], isError: true }; }
     });
-  server.tool("festival_details", "Date + rule explanation for one festival by name in a year.",
+  server.tool("festival_details", "Retrieve the date and rule explanation for one festival by name in a year. Use when you need specific details about a festival. Do NOT use when you need a list of festivals in a month, use festivals_in_month instead.",
     { name: z.string().describe("e.g. Diwali, Holi, Maha Shivaratri"), year: z.number() },
     { title: "Festival details", ...RO },
     async ({ name, year }) => {
       try { return { content: [{ type: "text", text: JSON.stringify(festivalDetails(name, year)) }] }; }
       catch (e) { return { content: [{ type: "text", text: `ERROR ${e instanceof Error ? e.message : "not found"}` }], isError: true }; }
     });
-  server.tool("festivals_in_month", "Festivals in a calendar month (1-12) of a year.",
+  server.tool("festivals_in_month", "Retrieve festivals for a specific month and year. Use when you need events for a particular month; avoid when you need a list of all festivals, use list_festivals.",
     { year: z.number(), month: z.number().describe("1=January..12=December") },
     { title: "Festivals in month", ...RO },
     async ({ year, month }) => {

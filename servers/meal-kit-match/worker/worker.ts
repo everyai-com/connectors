@@ -6,7 +6,7 @@ import {
 interface Env { API_KEY?: string; OPENAI_APPS_CHALLENGE_TOKEN?: string; }
 
 const VERSION = "1.0.0";
-const RO = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+const RO = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 
 type A = Record<string, unknown>;
 const str = (v: unknown) => typeof v === "string";
@@ -18,48 +18,286 @@ const req = (a: A, k: string, t: "str" | "num") => {
 
 const TOOLS = [
   { name: "match_kits", title: "Match kits",
-    description: "Rank meal kits against a diet/budget profile: matches with scores, rejections with reasons, and a pick.",
+    description: "Match meal kits to a diet/budget profile. Use when you need to select the best kit; NOT when planning a weekly meal schedule (use plan_week).",
     inputSchema: { type: "object", properties: {
       profile: { type: "object", description: "Your diet profile" },
       kits: { type: "array", description: "Kit catalog to match", items: { type: "object" } } }, required: ["profile", "kits"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "matches": {
+         "type": "array",
+         "description": "List of meal kits that match the diet/budget profile with scores",
+         "items": {
+          "type": "object",
+          "properties": {
+           "kit": {
+            "type": "object",
+            "description": "The meal kit that matches the profile"
+           },
+           "score": {
+            "type": "number",
+            "description": "The score of how well the kit matches the profile"
+           }
+          },
+          "required": [
+           "kit",
+           "score"
+          ]
+         }
+        },
+        "rejections": {
+         "type": "array",
+         "description": "List of meal kits that do not match the diet/budget profile with reasons",
+         "items": {
+          "type": "object",
+          "properties": {
+           "kit": {
+            "type": "object",
+            "description": "The meal kit that does not match the profile"
+           },
+           "reason": {
+            "type": "string",
+            "description": "The reason why the kit does not match the profile"
+           }
+          },
+          "required": [
+           "kit",
+           "reason"
+          ]
+         }
+        },
+        "pick": {
+         "type": "object",
+         "description": "The best meal kit that matches the diet/budget profile",
+         "properties": {
+          "kit": {
+           "type": "object",
+           "description": "The best meal kit"
+          },
+          "score": {
+           "type": "number",
+           "description": "The score of how well the kit matches the profile"
+          }
+         },
+         "required": [
+          "kit",
+          "score"
+         ]
+        }
+       },
+       "required": [
+        "matches",
+        "rejections",
+        "pick"
+       ]
+      },
     annot: RO,
     run: (a: A) => matchKits(a as unknown as Parameters<typeof matchKits>[0]) },
   { name: "plan_week", title: "Plan week",
-    description: "Plan a week of kit meals across days, flagging days short on servings.",
+    description: "Plan a week of kit meals across days. Use when you need to plan meals for a specific week. Do NOT use when you need to compare different kit tiers, use compare_kit_tiers.",
     inputSchema: { type: "object", properties: {
       kit_meals: { type: "array", description: "Kit meals to rotate", items: { type: "object" } },
       days: { type: "number", description: "Days to plan, 1-14, default 7" },
       servings_needed: { type: "number", description: "Servings needed per day, 1-12, default 2" } }, required: ["kit_meals"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "planned_week": {
+         "type": "array",
+         "description": "The planned meals for each day",
+         "items": {
+          "type": "object",
+          "properties": {
+           "day": {
+            "type": "number",
+            "description": "The day number in the week"
+           },
+           "meals": {
+            "type": "array",
+            "description": "The meals planned for this day",
+            "items": {
+             "type": "object",
+             "properties": {
+              "meal_name": {
+               "type": "string",
+               "description": "The name of the meal"
+              },
+              "servings": {
+               "type": "number",
+               "description": "The number of servings for this meal"
+              }
+             },
+             "required": [
+              "meal_name",
+              "servings"
+             ]
+            }
+           },
+           "servings_short": {
+            "type": "boolean",
+            "description": "Flag indicating if the day is short on servings"
+           }
+          },
+          "required": [
+           "day",
+           "meals",
+           "servings_short"
+          ]
+         }
+        }
+       },
+       "required": [
+        "planned_week"
+       ]
+      },
     annot: RO,
     run: (a: A) => planWeek(a as unknown as Parameters<typeof planWeek>[0]) },
   { name: "quote_week", title: "Quote week",
-    description: "Quote a week of meal kits: per-meal math, food total, shipping and monthly estimate.",
+    description: "Calculate weekly meal kit costs, including shipping and monthly estimate. Use when estimating weekly costs, not when planning meals (use plan_week).",
     inputSchema: { type: "object", properties: {
       price_per_serving: { type: "number", description: "Price per serving in USD" },
       meals_per_week: { type: "number", description: "Meals per week, 1-21" },
       servings: { type: "number", description: "Servings per meal, 1-12" },
       shipping: { type: "number", description: "Weekly shipping in USD, default 0" } }, required: ["price_per_serving", "meals_per_week", "servings"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "weekly_cost": {
+         "type": "number",
+         "description": "Total cost for the week in USD"
+        },
+        "food_total": {
+         "type": "number",
+         "description": "Total food cost for the week in USD"
+        },
+        "shipping_cost": {
+         "type": "number",
+         "description": "Shipping cost for the week in USD"
+        },
+        "monthly_estimate": {
+         "type": "number",
+         "description": "Estimated monthly cost in USD"
+        },
+        "cost_per_serving": {
+         "type": "number",
+         "description": "Cost per serving in USD"
+        },
+        "cost_per_meal": {
+         "type": "number",
+         "description": "Cost per meal in USD"
+        }
+       },
+       "required": [
+        "weekly_cost",
+        "food_total",
+        "shipping_cost",
+        "monthly_estimate",
+        "cost_per_serving",
+        "cost_per_meal"
+       ]
+      },
     annot: RO,
     run: (a: A) => { req(a, "price_per_serving", "num"); req(a, "meals_per_week", "num"); req(a, "servings", "num"); return quoteWeek(a as unknown as Parameters<typeof quoteWeek>[0]); } },
   { name: "compare_kit_tiers", title: "Compare kit tiers",
-    description: "Rank 2-6 kit plans from your price and rating numbers: 60% rating, 40% price.",
+    description: "Rank kit plans by value when you need to prioritize multiple factors. Use match_kits to find kits first, not to re-rank existing plans.",
     inputSchema: { type: "object", properties: {
       plans: { type: "array", description: "Plans to compare", items: { type: "object" } } }, required: ["plans"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "rankedPlans": {
+         "type": "array",
+         "description": "The input plans, sorted by value score",
+         "items": {
+          "type": "object",
+          "properties": {
+           "plan": {
+            "type": "object",
+            "description": "The original plan object"
+           },
+           "valueScore": {
+            "type": "number",
+            "description": "The calculated value score (60% rating, 40% price)"
+           }
+          },
+          "required": [
+           "plan",
+           "valueScore"
+          ]
+         }
+        }
+       },
+       "required": [
+        "rankedPlans"
+       ]
+      },
     annot: RO,
     run: (a: A) => compareKitTiers(a as unknown as Parameters<typeof compareKitTiers>[0]) },
   { name: "suggest_swaps", title: "Suggest swaps",
-    description: "Suggest swaps for meals clashing with avoids, naming a clean swap from the same list.",
+    description: "Suggest meal swaps for clashing avoids. Use when you need to replace meals based on dietary restrictions, NOT when planning a full week (use plan_week).",
     inputSchema: { type: "object", properties: {
       meals: { type: "array", description: "Meals to check", items: { type: "object" } },
       avoid: { type: "array", description: "Tags to avoid", items: { type: "string" } } }, required: ["meals", "avoid"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "swaps": {
+         "type": "array",
+         "description": "List of suggested swaps for each meal",
+         "items": {
+          "type": "object",
+          "properties": {
+           "originalMeal": {
+            "type": "string",
+            "description": "The original meal that needs to be swapped"
+           },
+           "swapMeal": {
+            "type": "string",
+            "description": "The suggested meal to swap in"
+           },
+           "reason": {
+            "type": "string",
+            "description": "The reason for the swap, typically a clashing avoid tag"
+           }
+          },
+          "required": [
+           "originalMeal",
+           "swapMeal",
+           "reason"
+          ]
+         }
+        }
+       },
+       "required": [
+        "swaps"
+       ]
+      },
     annot: RO,
     run: (a: A) => suggestSwaps(a as unknown as Parameters<typeof suggestSwaps>[0]) },
   { name: "delivery_schedule", title: "Delivery schedule",
-    description: "Compute the next N delivery dates on a weekly cadence from a first delivery.",
+    description: "Schedule N weekly deliveries starting from a given date. Use when planning future deliveries; NOT for daily or monthly schedules, use plan_week instead.",
     inputSchema: { type: "object", properties: {
       first_delivery: { type: "string", description: "First delivery YYYY-MM-DD" },
       every_weeks: { type: "number", description: "Cadence in weeks, 1-12, default 1" },
       count: { type: "number", description: "How many dates, 1-12, default 4" } }, required: ["first_delivery"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "delivery_dates": {
+         "type": "array",
+         "description": "List of delivery dates",
+         "items": {
+          "type": "string",
+          "format": "date",
+          "description": "A delivery date in YYYY-MM-DD format"
+         }
+        }
+       },
+       "required": [
+        "delivery_dates"
+       ]
+      },
     annot: RO,
     run: (a: A) => { req(a, "first_delivery", "str"); return deliverySchedule(a as unknown as Parameters<typeof deliverySchedule>[0]); } },
 ];
@@ -218,7 +456,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     if (body.method === "notifications/initialized")
       return new Response(null, { status: 202, headers: base });
     if (body.method === "tools/list")
-      return json({ jsonrpc: "2.0", id: body.id, result: { tools: TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, annotations: t.annot })) } }, 200, base);
+      return json({ jsonrpc: "2.0", id: body.id, result: { tools: TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, outputSchema: t.outputSchema, annotations: t.annot })) } }, 200, base);
     if (body.method === "tools/call") {
       const tool = TOOLS.find((t) => t.name === body.params?.name);
       if (!tool) return json({ jsonrpc: "2.0", id: body.id, error: { code: -32602, message: `unknown tool '${body.params?.name}'` } }, 200, base);

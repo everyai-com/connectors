@@ -6,7 +6,7 @@ import {
 interface Env { API_KEY?: string; OPENAI_APPS_CHALLENGE_TOKEN?: string; }
 
 const VERSION = "1.0.0";
-const RO = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+const RO = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 
 type A = Record<string, unknown>;
 const str = (v: unknown) => typeof v === "string";
@@ -18,38 +18,205 @@ const req = (a: A, k: string, t: "str" | "num") => {
 
 const TOOLS = [
   { name: "diagnose_issue", title: "Diagnose issue",
-    description: "Diagnose a plumbing issue: likely causes, severity (emergency/same_day/routine), shutoff steps and whether to call a pro.",
+    description: "Diagnose a plumbing issue: when you need a quick assessment and next steps. NOT for diagnosing electrical issues, use diagnose_issue instead.",
     inputSchema: { type: "object", properties: {
       symptom: { type: "string", description: "leak, burst_pipe, clog, no_hot_water, low_pressure, running_toilet or sewer_smell" },
       details: { type: "string", description: "Extra details from the caller" } }, required: ["symptom"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "likely_causes": {
+         "type": "array",
+         "description": "List of possible causes for the plumbing issue.",
+         "items": {
+          "type": "string"
+         }
+        },
+        "severity": {
+         "type": "string",
+         "description": "Severity level of the issue: 'emergency', 'same_day', or 'routine'.",
+         "enum": [
+          "emergency",
+          "same_day",
+          "routine"
+         ]
+        },
+        "shutoff_steps": {
+         "type": "string",
+         "description": "Instructions on how to shut off the water to prevent further damage."
+        },
+        "call_pro": {
+         "type": "boolean",
+         "description": "Indicates whether a professional plumber should be called."
+        }
+       },
+       "required": [
+        "likely_causes",
+        "severity",
+        "shutoff_steps",
+        "call_pro"
+       ]
+      },
     annot: RO,
     run: (a: A) => { req(a, "symptom", "str"); return diagnoseIssue(a as unknown as Parameters<typeof diagnoseIssue>[0]); } },
   { name: "find_slots", title: "Find slots",
-    description: "Find open start times in availability windows that fit a job length, every 30 minutes.",
+    description: "Find open start times in availability windows that fit a job length, every 30 minutes. Use when you need to schedule a job within a plumber's availability. Do NOT use when you need to diagnose a plumbing issue, use diagnose_issue.",
     inputSchema: { type: "object", properties: {
       availability: { type: "array", description: "Plumber availability windows", items: { type: "object" } },
       day: { type: "string", description: "Filter to a weekday" },
       duration_min: { type: "number", description: "Job length in minutes, 15-240, default 60" },
       after: { type: "string", description: "Only slots ending after HH:MM" },
       before: { type: "string", description: "Only slots starting before HH:MM" } }, required: ["availability"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "results": {
+         "type": "array",
+         "description": "List of find slots entries.",
+         "items": {
+          "type": "object",
+          "properties": {
+           "start_time": {
+            "type": "string",
+            "description": "The start time of the slot in HH:MM format."
+           },
+           "end_time": {
+            "type": "string",
+            "description": "The end time of the slot in HH:MM format."
+           }
+          },
+          "required": [
+           "start_time",
+           "end_time"
+          ]
+         }
+        }
+       },
+       "required": [
+        "results"
+       ]
+      },
     annot: RO,
     run: (a: A) => findSlots(a as unknown as Parameters<typeof findSlots>[0]) },
   { name: "quote_job", title: "Quote job",
-    description: "Quote a plumbing job with add-ons from a pricebook: line items, total price and total minutes.",
+    description: "Calculate the cost and time for a plumbing job with add-ons from a pricebook. Use when you need a quote for a job with add-ons. Do NOT use when you need to find available time slots for a job.",
     inputSchema: { type: "object", properties: {
       pricebook: { type: "array", description: "Plumber pricebook", items: { type: "object" } },
       job: { type: "string", description: "Job to quote" },
       add_ons: { type: "array", description: "Add-on job names", items: { type: "string" } } }, required: ["pricebook", "job"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "job": {
+         "type": "string",
+         "description": "The name of the job being quoted"
+        },
+        "base_price": {
+         "type": "number",
+         "description": "The base price of the job from the pricebook"
+        },
+        "base_minutes": {
+         "type": "integer",
+         "description": "The base time in minutes for the job from the pricebook"
+        },
+        "add_ons": {
+         "type": "array",
+         "description": "The add-on jobs and their details",
+         "items": {
+          "type": "object",
+          "properties": {
+           "name": {
+            "type": "string",
+            "description": "The name of the add-on job"
+           },
+           "price": {
+            "type": "number",
+            "description": "The price of the add-on job"
+           },
+           "minutes": {
+            "type": "integer",
+            "description": "The time in minutes for the add-on job"
+           }
+          },
+          "required": [
+           "name",
+           "price",
+           "minutes"
+          ]
+         }
+        },
+        "total_price": {
+         "type": "number",
+         "description": "The total price of the job including add-ons"
+        },
+        "total_minutes": {
+         "type": "integer",
+         "description": "The total time in minutes for the job including add-ons"
+        }
+       },
+       "required": [
+        "job",
+        "base_price",
+        "base_minutes",
+        "add_ons",
+        "total_price",
+        "total_minutes"
+       ]
+      },
     annot: RO,
     run: (a: A) => { req(a, "job", "str"); return quoteJob(a as unknown as Parameters<typeof quoteJob>[0]); } },
   { name: "compare_plumbers", title: "Compare plumbers",
-    description: "Rank 2-6 plumbers from your price, rating and distance numbers: 50% rating, 30% price, 20% distance.",
+    description: "Rank plumbers by price, rating, and distance. Use when you need to select a plumber; NOT when you need to schedule an appointment, use find_slots.",
     inputSchema: { type: "object", properties: {
       plumbers: { type: "array", description: "Plumbers to compare", items: { type: "object" } } }, required: ["plumbers"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "ranked_plumbers": {
+         "type": "array",
+         "description": "List of plumbers ranked by rating, price, and distance",
+         "items": {
+          "type": "object",
+          "properties": {
+           "name": {
+            "type": "string",
+            "description": "Name of the plumber"
+           },
+           "rating": {
+            "type": "number",
+            "description": "Rating of the plumber"
+           },
+           "price": {
+            "type": "number",
+            "description": "Price quoted by the plumber"
+           },
+           "distance": {
+            "type": "number",
+            "description": "Distance of the plumber from the job location"
+           },
+           "rank": {
+            "type": "integer",
+            "description": "Rank of the plumber based on the given criteria"
+           }
+          },
+          "required": [
+           "name",
+           "rating",
+           "price",
+           "distance",
+           "rank"
+          ]
+         }
+        }
+       },
+       "required": [
+        "ranked_plumbers"
+       ]
+      },
     annot: RO,
     run: (a: A) => comparePlumbers(a as unknown as Parameters<typeof comparePlumbers>[0]) },
   { name: "build_dispatch_request", title: "Build dispatch request",
-    description: "Draft a dispatch-request message to send a plumber: job, date, time, name and units. Draft only, never sent.",
+    description: "Create a dispatch-request message for a plumber. Use when you have all the details and need to draft a request. Do NOT use when you need to find available time slots, use find_slots.",
     inputSchema: { type: "object", properties: {
       job: { type: "string", description: "Job needed" },
       date: { type: "string", description: "Date YYYY-MM-DD" },
@@ -57,14 +224,91 @@ const TOOLS = [
       name: { type: "string", description: "Your name" },
       phone: { type: "string", description: "Callback number" },
       units: { type: "number", description: "Units, 1-10, default 1" } }, required: ["job", "date", "time", "name"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "message": {
+         "type": "string",
+         "description": "The draft dispatch-request message."
+        },
+        "summary": {
+         "type": "object",
+         "description": "A summary of the request details.",
+         "properties": {
+          "job": {
+           "type": "string",
+           "description": "The job needed."
+          },
+          "date": {
+           "type": "string",
+           "description": "The date of the job in YYYY-MM-DD format."
+          },
+          "time": {
+           "type": "string",
+           "description": "The time of the job in HH:MM 24h format."
+          },
+          "name": {
+           "type": "string",
+           "description": "The name of the requester."
+          },
+          "phone": {
+           "type": "string",
+           "description": "The callback number for the requester."
+          },
+          "units": {
+           "type": "number",
+           "description": "The number of units for the job, between 1 and 10."
+          }
+         },
+         "required": [
+          "job",
+          "date",
+          "time",
+          "name",
+          "units"
+         ]
+        }
+       },
+       "required": [
+        "message",
+        "summary"
+       ]
+      },
     annot: RO,
     run: (a: A) => { req(a, "job", "str"); req(a, "date", "str"); req(a, "time", "str"); req(a, "name", "str"); return buildDispatchRequest(a as unknown as Parameters<typeof buildDispatchRequest>[0]); } },
   { name: "maintenance_plan", title: "Maintenance plan",
-    description: "Compute the next N plumbing checkup dates every K months after a last visit.",
+    description: "Schedule N future plumbing maintenance dates every K months from a last visit. Use when planning routine checkups, NOT when finding available slots for a specific job (use find_slots).",
     inputSchema: { type: "object", properties: {
       last_visit: { type: "string", description: "Last visit YYYY-MM-DD" },
       every_months: { type: "number", description: "Interval in months, 1-24, default 12" },
       count: { type: "number", description: "How many dates, 1-12, default 2" } }, required: ["last_visit"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "maintenance_dates": {
+         "type": "array",
+         "description": "List of scheduled maintenance dates",
+         "items": {
+          "type": "string",
+          "format": "date",
+          "description": "A specific date for a maintenance checkup"
+         }
+        },
+        "interval": {
+         "type": "number",
+         "description": "The interval in months between each maintenance checkup"
+        },
+        "count": {
+         "type": "number",
+         "description": "The number of maintenance checkups scheduled"
+        }
+       },
+       "required": [
+        "maintenance_dates",
+        "interval",
+        "count"
+       ]
+      },
     annot: RO,
     run: (a: A) => { req(a, "last_visit", "str"); return maintenancePlan(a as unknown as Parameters<typeof maintenancePlan>[0]); } },
 ];
@@ -223,7 +467,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     if (body.method === "notifications/initialized")
       return new Response(null, { status: 202, headers: base });
     if (body.method === "tools/list")
-      return json({ jsonrpc: "2.0", id: body.id, result: { tools: TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, annotations: t.annot })) } }, 200, base);
+      return json({ jsonrpc: "2.0", id: body.id, result: { tools: TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, outputSchema: t.outputSchema, annotations: t.annot })) } }, 200, base);
     if (body.method === "tools/call") {
       const tool = TOOLS.find((t) => t.name === body.params?.name);
       if (!tool) return json({ jsonrpc: "2.0", id: body.id, error: { code: -32602, message: `unknown tool '${body.params?.name}'` } }, 200, base);

@@ -6,7 +6,7 @@ import {
 interface Env { API_KEY?: string; OPENAI_APPS_CHALLENGE_TOKEN?: string; }
 
 const VERSION = "1.0.0";
-const RO = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+const RO = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 
 type A = Record<string, unknown>;
 const str = (v: unknown) => typeof v === "string";
@@ -18,7 +18,7 @@ const req = (a: A, k: string, t: "str" | "num") => {
 
 const TOOLS = [
   { name: "find_classes", title: "Find classes",
-    description: "Search a weekly class schedule by day, class type, max intensity or time window.",
+    description: "Filter a weekly class schedule by specific criteria. Use when needing to find classes by time or type. Avoid when needing to build a booking request, use build_booking_request.",
     inputSchema: { type: "object", properties: {
       schedule: { type: "array", description: "Weekly schedule to search", items: { type: "object" } },
       day: { type: "string", description: "Filter to a weekday" },
@@ -26,46 +26,273 @@ const TOOLS = [
       intensity_max: { type: "number", description: "Max intensity 1-5" },
       after: { type: "string", description: "Only classes at or after HH:MM" },
       before: { type: "string", description: "Only classes at or before HH:MM" } }, required: ["schedule"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "results": {
+         "type": "array",
+         "description": "List of classes that match the search criteria",
+         "items": {
+          "type": "object",
+          "properties": {
+           "class_name": {
+            "type": "string",
+            "description": "The name of the class"
+           },
+           "class_type": {
+            "type": "string",
+            "description": "The type of the class (cardio, strength, mobility, sport)"
+           },
+           "day": {
+            "type": "string",
+            "description": "The day of the week the class is scheduled"
+           },
+           "time": {
+            "type": "string",
+            "description": "The time the class is scheduled"
+           },
+           "intensity": {
+            "type": "number",
+            "description": "The intensity level of the class (1-5)"
+           }
+          },
+          "required": [
+           "class_name",
+           "class_type",
+           "day",
+           "time",
+           "intensity"
+          ]
+         }
+        }
+       },
+       "required": [
+        "results"
+       ]
+      },
     annot: RO,
     run: (a: A) => findClasses(a as unknown as Parameters<typeof findClasses>[0]) },
   { name: "quote_week", title: "Quote week",
-    description: "Quote a week of classes at a drop-in rate: class count and week total.",
+    description: "Calculate the total cost of a week's classes at drop-in rate. Use when needing a quick cost estimate for a week of drop-in classes; NOT when needing to find available classes, use find_classes.",
     inputSchema: { type: "object", properties: {
       schedule: { type: "array", description: "This week's classes", items: { type: "object" } },
       drop_in_usd: { type: "number", description: "Drop-in price per class in USD" } }, required: ["schedule", "drop_in_usd"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "week_total_usd": {
+         "type": "number",
+         "description": "The total cost for the week in USD."
+        },
+        "class_count": {
+         "type": "integer",
+         "description": "The number of classes scheduled for the week."
+        }
+       },
+       "required": [
+        "week_total_usd",
+        "class_count"
+       ]
+      },
     annot: RO,
     run: (a: A) => { req(a, "drop_in_usd", "num"); return quoteWeek(a as unknown as Parameters<typeof quoteWeek>[0]); } },
   { name: "membership_break_even", title: "Membership break-even",
-    description: "Compute how many classes a month justify a membership over drop-ins, with an optional comparison at your volume.",
+    description: "Calculate the break-even number of monthly classes for memberships vs. drop-ins. Use when evaluating membership pricing strategy, NOT when forecasting weekly class attendance (use quote_week).",
     inputSchema: { type: "object", properties: {
       drop_in_usd: { type: "number", description: "Drop-in price per class in USD" },
       membership_usd: { type: "number", description: "Monthly membership price in USD" },
       classes_per_month: { type: "number", description: "Your monthly volume for a direct comparison" } }, required: ["drop_in_usd", "membership_usd"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "break_even_classes": {
+         "type": "number",
+         "description": "The number of classes per month at which the membership becomes more cost-effective than drop-ins."
+        },
+        "comparison": {
+         "type": "object",
+         "description": "Comparison of costs based on the provided monthly volume.",
+         "properties": {
+          "membership_cost": {
+           "type": "number",
+           "description": "The total cost of the membership for the given number of classes per month."
+          },
+          "drop_in_cost": {
+           "type": "number",
+           "description": "The total cost of drop-ins for the given number of classes per month."
+          },
+          "savings": {
+           "type": "number",
+           "description": "The savings achieved by choosing the membership over drop-ins for the given volume."
+          }
+         },
+         "required": [
+          "membership_cost",
+          "drop_in_cost",
+          "savings"
+         ]
+        }
+       },
+       "required": [
+        "break_even_classes"
+       ]
+      },
     annot: RO,
     run: (a: A) => { req(a, "drop_in_usd", "num"); req(a, "membership_usd", "num"); return membershipBreakEven(a as unknown as Parameters<typeof membershipBreakEven>[0]); } },
   { name: "build_booking_request", title: "Build booking request",
-    description: "Draft a booking-request message to send a studio: class, date, time, name and party size. Draft only, never sent.",
+    description: "Create a booking-request message for a studio class. Use when you need a draft message to send to a studio. Do NOT use when you need to find available classes, use find_classes.",
     inputSchema: { type: "object", properties: {
       class_name: { type: "string", description: "Class to book" },
       date: { type: "string", description: "Date YYYY-MM-DD" },
       time: { type: "string", description: "Time HH:MM 24h" },
       name: { type: "string", description: "Your name" },
       party_size: { type: "number", description: "Spots to reserve, 1-10, default 1" } }, required: ["class_name", "date", "time", "name"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "message": {
+         "type": "string",
+         "description": "The draft booking-request message."
+        },
+        "class_name": {
+         "type": "string",
+         "description": "The name of the class to book."
+        },
+        "date": {
+         "type": "string",
+         "description": "The date of the class in YYYY-MM-DD format."
+        },
+        "time": {
+         "type": "string",
+         "description": "The time of the class in HH:MM 24h format."
+        },
+        "name": {
+         "type": "string",
+         "description": "The name of the person making the booking request."
+        },
+        "party_size": {
+         "type": "number",
+         "description": "The number of spots to reserve, between 1 and 10."
+        }
+       },
+       "required": [
+        "message",
+        "class_name",
+        "date",
+        "time",
+        "name",
+        "party_size"
+       ]
+      },
     annot: RO,
     run: (a: A) => { req(a, "class_name", "str"); req(a, "date", "str"); req(a, "time", "str"); req(a, "name", "str"); return buildBookingRequest(a as unknown as Parameters<typeof buildBookingRequest>[0]); } },
   { name: "class_reminders", title: "Class reminders",
-    description: "Compute reminder datetimes before each class start from lead times in hours.",
+    description: "Schedule reminders before each class. Use when you need to notify students before classes. Do NOT use when you need to find available classes, use find_classes.",
     inputSchema: { type: "object", properties: {
       sessions: { type: "array", description: "Upcoming classes", items: { type: "object" } },
       lead_hours: { type: "array", description: "Lead times in hours, default [12, 1]", items: { type: "number" } } }, required: ["sessions"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "sessions": {
+         "type": "array",
+         "description": "List of upcoming classes with their scheduled reminder times",
+         "items": {
+          "type": "object",
+          "properties": {
+           "class_id": {
+            "type": "string",
+            "description": "Unique identifier for the class"
+           },
+           "class_name": {
+            "type": "string",
+            "description": "Name of the class"
+           },
+           "start_time": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Scheduled start time of the class"
+           },
+           "reminders": {
+            "type": "array",
+            "description": "List of reminder times before the class starts",
+            "items": {
+             "type": "string",
+             "format": "date-time",
+             "description": "Scheduled reminder time"
+            }
+           }
+          },
+          "required": [
+           "class_id",
+           "class_name",
+           "start_time",
+           "reminders"
+          ]
+         }
+        }
+       },
+       "required": [
+        "sessions"
+       ]
+      },
     annot: RO,
     run: (a: A) => classReminders(a as unknown as Parameters<typeof classReminders>[0]) },
   { name: "week_plan", title: "Week plan",
-    description: "Build a balanced week plan from a schedule for a goal: balanced, cardio or strength, capped at N classes.",
+    description: "Generate a balanced week plan from a schedule. Use when you need a structured plan for a week. Do NOT use when you need to find available classes, use find_classes.",
     inputSchema: { type: "object", properties: {
       schedule: { type: "array", description: "Weekly schedule to plan from", items: { type: "object" } },
       goal: { type: "string", description: "balanced, cardio or strength; default balanced" },
       max_classes: { type: "number", description: "Max classes, 1-14, default 5" } }, required: ["schedule"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "plan": {
+         "type": "array",
+         "description": "List of planned classes for the week",
+         "items": {
+          "type": "object",
+          "properties": {
+           "day": {
+            "type": "string",
+            "description": "Day of the week"
+           },
+           "time": {
+            "type": "string",
+            "description": "Time of the class"
+           },
+           "class_type": {
+            "type": "string",
+            "description": "Type of class (balanced, cardio, strength)"
+           },
+           "class_name": {
+            "type": "string",
+            "description": "Name of the class"
+           }
+          },
+          "required": [
+           "day",
+           "time",
+           "class_type",
+           "class_name"
+          ]
+         }
+        },
+        "total_classes": {
+         "type": "number",
+         "description": "Total number of classes planned"
+        },
+        "goal": {
+         "type": "string",
+         "description": "Goal of the plan (balanced, cardio, strength)"
+        }
+       },
+       "required": [
+        "plan",
+        "total_classes",
+        "goal"
+       ]
+      },
     annot: RO,
     run: (a: A) => weekPlan(a as unknown as Parameters<typeof weekPlan>[0]) },
 ];
@@ -224,7 +451,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     if (body.method === "notifications/initialized")
       return new Response(null, { status: 202, headers: base });
     if (body.method === "tools/list")
-      return json({ jsonrpc: "2.0", id: body.id, result: { tools: TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, annotations: t.annot })) } }, 200, base);
+      return json({ jsonrpc: "2.0", id: body.id, result: { tools: TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, outputSchema: t.outputSchema, annotations: t.annot })) } }, 200, base);
     if (body.method === "tools/call") {
       const tool = TOOLS.find((t) => t.name === body.params?.name);
       if (!tool) return json({ jsonrpc: "2.0", id: body.id, error: { code: -32602, message: `unknown tool '${body.params?.name}'` } }, 200, base);

@@ -6,7 +6,7 @@ import {
 interface Env { API_KEY?: string; OPENAI_APPS_CHALLENGE_TOKEN?: string; }
 
 const VERSION = "1.0.0";
-const RO = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+const RO = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 
 type A = Record<string, unknown>;
 const str = (v: unknown) => typeof v === "string";
@@ -18,55 +18,277 @@ const req = (a: A, k: string, t: "str" | "num") => {
 
 const TOOLS = [
   { name: "find_stays", title: "Find stays",
-    description: "Find hotels matching price, rating and amenity filters, ranked by rating, price and distance.",
+    description: "Filter stays by price, rating, and amenities within a list. Use when you need to rank stays by rating, price, and distance. Do NOT use when you need to get a quote for a specific night.",
     inputSchema: { type: "object", properties: {
       hotels: { type: "array", description: "Hotels to search", items: { type: "object" } },
       max_price: { type: "number", description: "Max nightly price in USD" },
       min_rating: { type: "number", description: "Min rating 1-5" },
       need_amenities: { type: "array", description: "Required amenities", items: { type: "string" } } }, required: ["hotels"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "filtered_stays": {
+         "type": "array",
+         "description": "List of stays that match the filters",
+         "items": {
+          "type": "object",
+          "properties": {
+           "hotel_id": {
+            "type": "string",
+            "description": "Unique identifier for the hotel"
+           },
+           "name": {
+            "type": "string",
+            "description": "Name of the hotel"
+           },
+           "rating": {
+            "type": "number",
+            "description": "Rating of the hotel (1-5)"
+           },
+           "price": {
+            "type": "number",
+            "description": "Nightly price in USD"
+           },
+           "distance": {
+            "type": "number",
+            "description": "Distance from the search location in miles"
+           },
+           "amenities": {
+            "type": "array",
+            "description": "List of amenities available at the hotel",
+            "items": {
+             "type": "string"
+            }
+           }
+          },
+          "required": [
+           "hotel_id",
+           "name",
+           "rating",
+           "price",
+           "distance",
+           "amenities"
+          ]
+         }
+        }
+       },
+       "required": [
+        "filtered_stays"
+       ]
+      },
     annot: RO,
     run: (a: A) => findStays(a as unknown as Parameters<typeof findStays>[0]) },
   { name: "quote_night", title: "Quote night",
-    description: "Quote a stay: room rate across nights plus taxes and fees into an all-in total.",
+    description: "Calculate the total cost of a stay: room rate across nights plus taxes and fees. Use when you need a total cost for a stay. Do NOT use when you need to find available stays, use find_stays.",
     inputSchema: { type: "object", properties: {
       room_price: { type: "number", description: "Room price per night in USD" },
       taxes_pct: { type: "number", description: "Tax percent 0-40, default 12" },
       fees: { type: "number", description: "Flat fees in USD, default 0" },
       nights: { type: "number", description: "Nights 1-30, default 1" } }, required: ["room_price"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "total_cost": {
+         "type": "number",
+         "description": "The total cost of the stay in USD, including room price, taxes, and fees."
+        },
+        "tax_amount": {
+         "type": "number",
+         "description": "The total tax amount in USD applied to the stay."
+        },
+        "fee_amount": {
+         "type": "number",
+         "description": "The total fee amount in USD applied to the stay."
+        },
+        "room_cost": {
+         "type": "number",
+         "description": "The total room cost in USD for the stay."
+        },
+        "nights": {
+         "type": "number",
+         "description": "The number of nights for the stay."
+        }
+       },
+       "required": [
+        "total_cost",
+        "tax_amount",
+        "fee_amount",
+        "room_cost",
+        "nights"
+       ]
+      },
     annot: RO,
     run: (a: A) => { req(a, "room_price", "num"); return quoteNight(a as unknown as Parameters<typeof quoteNight>[0]); } },
   { name: "loyalty_break_even", title: "Loyalty break-even",
-    description: "Compute how many nights a year justify a hotel loyalty membership, with a verdict at your volume.",
+    description: "Calculate the break-even nights for a hotel loyalty membership. Use when evaluating membership value; avoid when assessing specific stays, use find_stays.",
     inputSchema: { type: "object", properties: {
       membership_yearly: { type: "number", description: "Yearly membership in USD" },
       member_discount_pct: { type: "number", description: "Member discount percent 0-90" },
       avg_night_price: { type: "number", description: "Average night price in USD" },
       nights_per_year: { type: "number", description: "Your yearly nights" } }, required: ["membership_yearly", "member_discount_pct", "avg_night_price", "nights_per_year"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "break_even_nights": {
+         "type": "number",
+         "description": "The number of nights required to break even on the membership cost."
+        },
+        "verdict": {
+         "type": "string",
+         "description": "A verdict indicating whether the membership is worth it based on the input nights per year."
+        },
+        "savings_per_night": {
+         "type": "number",
+         "description": "The savings per night due to the membership discount."
+        },
+        "total_savings": {
+         "type": "number",
+         "description": "The total savings per year if the break-even number of nights is met."
+        }
+       },
+       "required": [
+        "break_even_nights",
+        "verdict",
+        "savings_per_night",
+        "total_savings"
+       ]
+      },
     annot: RO,
     run: (a: A) => { req(a, "membership_yearly", "num"); req(a, "member_discount_pct", "num"); req(a, "avg_night_price", "num"); req(a, "nights_per_year", "num"); return loyaltyBreakEven(a as unknown as Parameters<typeof loyaltyBreakEven>[0]); } },
   { name: "build_booking_request", title: "Build booking request",
-    description: "Draft a booking-request message to send a hotel: hotel, date, name, nights and guests. Draft only, never sent.",
+    description: "Create a booking-request message for a hotel. Use when you need to draft a message to send to a hotel. Do NOT use when you need to find available stays, use find_stays.",
     inputSchema: { type: "object", properties: {
       hotel: { type: "string", description: "Hotel to book" },
       date: { type: "string", description: "Check-in date YYYY-MM-DD" },
       name: { type: "string", description: "Your name" },
       nights: { type: "number", description: "Nights 1-30, default 1" },
       guests: { type: "number", description: "Guests 1-10, default 2" } }, required: ["hotel", "date", "name"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "message": {
+         "type": "string",
+         "description": "The draft booking-request message."
+        },
+        "recipient": {
+         "type": "string",
+         "description": "The hotel to which the message is addressed."
+        },
+        "sender": {
+         "type": "string",
+         "description": "The name of the person sending the booking request."
+        },
+        "checkInDate": {
+         "type": "string",
+         "description": "The check-in date for the booking request in YYYY-MM-DD format."
+        },
+        "nights": {
+         "type": "number",
+         "description": "The number of nights for the booking request."
+        },
+        "guests": {
+         "type": "number",
+         "description": "The number of guests for the booking request."
+        }
+       },
+       "required": [
+        "message",
+        "recipient",
+        "sender",
+        "checkInDate",
+        "nights",
+        "guests"
+       ]
+      },
     annot: RO,
     run: (a: A) => { req(a, "hotel", "str"); req(a, "date", "str"); req(a, "name", "str"); return buildBookingRequest(a as unknown as Parameters<typeof buildBookingRequest>[0]); } },
   { name: "stay_reminders", title: "Stay reminders",
-    description: "Compute reminder datetimes before check-in from lead times in hours.",
+    description: "Calculate reminder datetimes before check-in from lead times in hours. Use when needing to notify guests before arrival. Avoid when needing to find available stays, use find_stays.",
     inputSchema: { type: "object", properties: {
       stay: { type: "string", description: "Stay booked" },
       starts_at: { type: "string", description: "Check-in, ISO datetime" },
       lead_hours: { type: "array", description: "Lead times in hours, default [24, 2]", items: { type: "number" } } }, required: ["stay", "starts_at"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "stay": {
+         "type": "string",
+         "description": "The stay booked."
+        },
+        "starts_at": {
+         "type": "string",
+         "description": "The check-in datetime in ISO format."
+        },
+        "lead_hours": {
+         "type": "array",
+         "description": "The lead times in hours.",
+         "items": {
+          "type": "number"
+         }
+        },
+        "reminders": {
+         "type": "array",
+         "description": "The calculated reminder datetimes.",
+         "items": {
+          "type": "string",
+          "format": "date-time"
+         }
+        }
+       },
+       "required": [
+        "stay",
+        "starts_at",
+        "lead_hours",
+        "reminders"
+       ]
+      },
     annot: RO,
     run: (a: A) => { req(a, "stay", "str"); req(a, "starts_at", "str"); return stayReminders(a as unknown as Parameters<typeof stayReminders>[0]); } },
   { name: "trip_plan", title: "Trip plan",
-    description: "Plan the most nights a budget buys: cheapest-first picks with total and leftover.",
+    description: "Maximize nights a budget buys. Use when you need to find the most nights within a budget. Do NOT use when you need to find the cheapest night in a specific city, use find_stays.",
     inputSchema: { type: "object", properties: {
       budget: { type: "number", description: "Trip budget in USD" },
       nights: { type: "array", description: "Candidate nights", items: { type: "object" } } }, required: ["budget", "nights"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "totalSpent": {
+         "type": "number",
+         "description": "Total amount spent on the trip in USD"
+        },
+        "leftover": {
+         "type": "number",
+         "description": "Remaining budget after planning the trip in USD"
+        },
+        "selectedNights": {
+         "type": "array",
+         "description": "List of selected nights for the trip",
+         "items": {
+          "type": "object",
+          "properties": {
+           "date": {
+            "type": "string",
+            "format": "date",
+            "description": "Date of the selected night"
+           },
+           "cost": {
+            "type": "number",
+            "description": "Cost of the selected night in USD"
+           }
+          },
+          "required": [
+           "date",
+           "cost"
+          ]
+         }
+        }
+       },
+       "required": [
+        "totalSpent",
+        "leftover",
+        "selectedNights"
+       ]
+      },
     annot: RO,
     run: (a: A) => { req(a, "budget", "num"); return tripPlan(a as unknown as Parameters<typeof tripPlan>[0]); } },
 ];
@@ -225,7 +447,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     if (body.method === "notifications/initialized")
       return new Response(null, { status: 202, headers: base });
     if (body.method === "tools/list")
-      return json({ jsonrpc: "2.0", id: body.id, result: { tools: TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, annotations: t.annot })) } }, 200, base);
+      return json({ jsonrpc: "2.0", id: body.id, result: { tools: TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, outputSchema: t.outputSchema, annotations: t.annot })) } }, 200, base);
     if (body.method === "tools/call") {
       const tool = TOOLS.find((t) => t.name === body.params?.name);
       if (!tool) return json({ jsonrpc: "2.0", id: body.id, error: { code: -32602, message: `unknown tool '${body.params?.name}'` } }, 200, base);

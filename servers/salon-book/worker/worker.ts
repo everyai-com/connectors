@@ -6,7 +6,7 @@ import {
 interface Env { API_KEY?: string; OPENAI_APPS_CHALLENGE_TOKEN?: string; }
 
 const VERSION = "1.0.0";
-const RO = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+const RO = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 
 type A = Record<string, unknown>;
 const str = (v: unknown) => typeof v === "string";
@@ -18,31 +18,161 @@ const req = (a: A, k: string, t: "str" | "num") => {
 
 const TOOLS = [
   { name: "find_slots", title: "Find slots",
-    description: "Find open start times in availability windows that fit a service length, every 30 minutes.",
+    description: "Find open start times in availability windows that fit a service length, every 30 minutes. Use when you need to schedule a service within specific time constraints. Do NOT use when you need to send a quote for a service, use quote_service.",
     inputSchema: { type: "object", properties: {
       availability: { type: "array", description: "Salon availability windows", items: { type: "object" } },
       day: { type: "string", description: "Filter to a weekday" },
       duration_min: { type: "number", description: "Service length in minutes, 15-240, default 60" },
       after: { type: "string", description: "Only slots ending after HH:MM" },
       before: { type: "string", description: "Only slots starting before HH:MM" } }, required: ["availability"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "results": {
+         "type": "array",
+         "description": "List of find slots entries.",
+         "items": {
+          "type": "object",
+          "properties": {
+           "start_time": {
+            "type": "string",
+            "description": "The start time of the open slot in HH:MM format."
+           },
+           "end_time": {
+            "type": "string",
+            "description": "The end time of the open slot in HH:MM format."
+           }
+          },
+          "required": [
+           "start_time",
+           "end_time"
+          ]
+         }
+        }
+       },
+       "required": [
+        "results"
+       ]
+      },
     annot: RO,
     run: (a: A) => findSlots(a as unknown as Parameters<typeof findSlots>[0]) },
   { name: "quote_service", title: "Quote service",
-    description: "Quote a service with add-ons from a salon menu: line items, total price and total minutes.",
+    description: "Calculate the cost and duration of a salon service with add-ons from a menu. Use when you need to provide a quote for a service with optional extras; NOT when you need to find available time slots for a service, use find_slots.",
     inputSchema: { type: "object", properties: {
       menu: { type: "array", description: "Salon service menu", items: { type: "object" } },
       service: { type: "string", description: "Service to quote" },
       add_ons: { type: "array", description: "Add-on service names", items: { type: "string" } } }, required: ["menu", "service"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "service": {
+         "type": "string",
+         "description": "The name of the requested service"
+        },
+        "add_ons": {
+         "type": "array",
+         "description": "The names of the selected add-on services",
+         "items": {
+          "type": "string"
+         }
+        },
+        "line_items": {
+         "type": "array",
+         "description": "The individual items in the quote, including the service and any add-ons",
+         "items": {
+          "type": "object",
+          "properties": {
+           "name": {
+            "type": "string",
+            "description": "The name of the service or add-on"
+           },
+           "price": {
+            "type": "number",
+            "description": "The price of the service or add-on"
+           },
+           "minutes": {
+            "type": "integer",
+            "description": "The duration of the service or add-on in minutes"
+           }
+          },
+          "required": [
+           "name",
+           "price",
+           "minutes"
+          ]
+         }
+        },
+        "total_price": {
+         "type": "number",
+         "description": "The total price of the service with add-ons"
+        },
+        "total_minutes": {
+         "type": "integer",
+         "description": "The total duration of the service with add-ons in minutes"
+        }
+       },
+       "required": [
+        "service",
+        "add_ons",
+        "line_items",
+        "total_price",
+        "total_minutes"
+       ]
+      },
     annot: RO,
     run: (a: A) => { req(a, "service", "str"); return quoteService(a as unknown as Parameters<typeof quoteService>[0]); } },
   { name: "compare_salons", title: "Compare salons",
-    description: "Rank 2-6 salons from your price, rating and distance numbers: 50% rating, 30% price, 20% distance.",
+    description: "Rank 2-6 salons by price, rating, and distance. Use when comparing multiple salons for booking. Do NOT use when finding available time slots, use find_slots.",
     inputSchema: { type: "object", properties: {
       salons: { type: "array", description: "Salons to compare", items: { type: "object" } } }, required: ["salons"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "ranked_salons": {
+         "type": "array",
+         "description": "List of salons ranked by the given criteria",
+         "items": {
+          "type": "object",
+          "properties": {
+           "name": {
+            "type": "string",
+            "description": "Name of the salon"
+           },
+           "rating": {
+            "type": "number",
+            "description": "Rating of the salon"
+           },
+           "price": {
+            "type": "number",
+            "description": "Price at the salon"
+           },
+           "distance": {
+            "type": "number",
+            "description": "Distance to the salon"
+           },
+           "rank": {
+            "type": "integer",
+            "description": "Rank of the salon based on the criteria"
+           }
+          },
+          "required": [
+           "name",
+           "rating",
+           "price",
+           "distance",
+           "rank"
+          ]
+         }
+        }
+       },
+       "required": [
+        "ranked_salons"
+       ]
+      },
     annot: RO,
     run: (a: A) => compareSalons(a as unknown as Parameters<typeof compareSalons>[0]) },
   { name: "build_booking_request", title: "Build booking request",
-    description: "Draft a booking-request message to send a salon: service, date, time, name and party size. Draft only, never sent.",
+    description: "Create a booking-request message for a salon. Use when you need to draft a message to send to a salon. Do NOT use when you need to find available time slots, use find_slots.",
     inputSchema: { type: "object", properties: {
       service: { type: "string", description: "Service to book" },
       date: { type: "string", description: "Date YYYY-MM-DD" },
@@ -50,22 +180,117 @@ const TOOLS = [
       name: { type: "string", description: "Your name" },
       phone: { type: "string", description: "Callback number" },
       party_size: { type: "number", description: "People, 1-6, default 1" } }, required: ["service", "date", "time", "name"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "message": {
+         "type": "string",
+         "description": "The draft booking-request message."
+        },
+        "service": {
+         "type": "string",
+         "description": "The service to book, as provided in the input."
+        },
+        "date": {
+         "type": "string",
+         "description": "The date of the booking, as provided in the input."
+        },
+        "time": {
+         "type": "string",
+         "description": "The time of the booking, as provided in the input."
+        },
+        "name": {
+         "type": "string",
+         "description": "The name of the person booking, as provided in the input."
+        },
+        "phone": {
+         "type": "string",
+         "description": "The callback number, as provided in the input."
+        },
+        "party_size": {
+         "type": "number",
+         "description": "The number of people in the party, as provided in the input."
+        }
+       },
+       "required": [
+        "message",
+        "service",
+        "date",
+        "time",
+        "name"
+       ]
+      },
     annot: RO,
     run: (a: A) => { req(a, "service", "str"); req(a, "date", "str"); req(a, "time", "str"); req(a, "name", "str"); return buildBookingRequest(a as unknown as Parameters<typeof buildBookingRequest>[0]); } },
   { name: "rebook_schedule", title: "Rebook schedule",
-    description: "Compute the next N rebook dates every K weeks after a last visit.",
+    description: "Generate N rebook dates every K weeks from a last visit. Use when you need to plan future appointments based on a past visit. Do NOT use when you need to find available time slots for a new booking, use find_slots.",
     inputSchema: { type: "object", properties: {
       last_visit: { type: "string", description: "Last visit YYYY-MM-DD" },
       every_weeks: { type: "number", description: "Interval in weeks, 1-26, default 6" },
       count: { type: "number", description: "How many dates, 1-12, default 4" } }, required: ["last_visit"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "results": {
+         "type": "array",
+         "description": "List of rebook schedule entries.",
+         "items": {
+          "type": "object",
+          "properties": {
+           "rebook_date": {
+            "type": "string",
+            "description": "The calculated rebook date in YYYY-MM-DD format."
+           },
+           "weeks_from_last_visit": {
+            "type": "number",
+            "description": "The number of weeks from the last visit to this rebook date."
+           }
+          },
+          "required": [
+           "rebook_date",
+           "weeks_from_last_visit"
+          ]
+         }
+        }
+       },
+       "required": [
+        "results"
+       ]
+      },
     annot: RO,
     run: (a: A) => { req(a, "last_visit", "str"); return rebookSchedule(a as unknown as Parameters<typeof rebookSchedule>[0]); } },
   { name: "appointment_reminders", title: "Appointment reminders",
-    description: "Compute reminder datetimes before an appointment start from lead times in hours.",
+    description: "Generate reminder datetimes for an appointment from lead times. Use when needing to notify clients before a service. NOT for finding available time slots; use find_slots instead.",
     inputSchema: { type: "object", properties: {
       service: { type: "string", description: "Service booked" },
       starts_at: { type: "string", description: "Appointment start, ISO datetime" },
       lead_hours: { type: "array", description: "Lead times in hours, default [24, 2]", items: { type: "number" } } }, required: ["service", "starts_at"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "service": {
+         "type": "string",
+         "description": "The service booked for the appointment."
+        },
+        "starts_at": {
+         "type": "string",
+         "description": "The original appointment start time in ISO datetime format."
+        },
+        "reminders": {
+         "type": "array",
+         "description": "List of reminder datetimes based on the lead times provided.",
+         "items": {
+          "type": "string",
+          "description": "A reminder datetime in ISO datetime format."
+         }
+        }
+       },
+       "required": [
+        "service",
+        "starts_at",
+        "reminders"
+       ]
+      },
     annot: RO,
     run: (a: A) => { req(a, "service", "str"); req(a, "starts_at", "str"); return appointmentReminders(a as unknown as Parameters<typeof appointmentReminders>[0]); } },
 ];
@@ -224,7 +449,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     if (body.method === "notifications/initialized")
       return new Response(null, { status: 202, headers: base });
     if (body.method === "tools/list")
-      return json({ jsonrpc: "2.0", id: body.id, result: { tools: TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, annotations: t.annot })) } }, 200, base);
+      return json({ jsonrpc: "2.0", id: body.id, result: { tools: TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, outputSchema: t.outputSchema, annotations: t.annot })) } }, 200, base);
     if (body.method === "tools/call") {
       const tool = TOOLS.find((t) => t.name === body.params?.name);
       if (!tool) return json({ jsonrpc: "2.0", id: body.id, error: { code: -32602, message: `unknown tool '${body.params?.name}'` } }, 200, base);

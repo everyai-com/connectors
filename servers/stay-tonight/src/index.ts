@@ -46,46 +46,46 @@ function buildServer(): McpServer {
 
   server.tool(
     "find_stays",
-    "Find hotels matching price, rating and amenity filters, ranked by rating, price and distance.",
+    "Filter hotels by price, rating, and amenities within a list. Use when you have a list of hotels and need to filter by specific criteria. Do NOT use when you need to get a price quote for a specific hotel.",
     {
       hotels: z.array(Hotel).describe("Hotels to search"),
       max_price: z.number().optional().describe("Max nightly price in USD"),
       min_rating: z.number().optional().describe("Min rating 1-5"),
       need_amenities: z.array(z.string()).optional().describe("Required amenities"),
     },
-    { title: "Find stays", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Find stays", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => findStays(a)),
   );
 
   server.tool(
     "quote_night",
-    "Quote a stay: room rate across nights plus taxes and fees into an all-in total.",
+    "Calculate the total cost of a stay: room rate across nights plus taxes and fees. Use when you need a total cost for a stay. Do NOT use when you need to find available stays, use find_stays.",
     {
       room_price: z.number().describe("Room price per night in USD"),
       taxes_pct: z.number().optional().describe("Tax percent 0-40, default 12"),
       fees: z.number().optional().describe("Flat fees in USD, default 0"),
       nights: z.number().optional().describe("Nights 1-30, default 1"),
     },
-    { title: "Quote night", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Quote night", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => quoteNight(a)),
   );
 
   server.tool(
     "loyalty_break_even",
-    "Compute how many nights a year justify a hotel loyalty membership, with a verdict at your volume.",
+    "Calculate the break-even nights for a hotel loyalty membership. Use when evaluating membership value; avoid when assessing specific stays, use find_stays.",
     {
       membership_yearly: z.number().describe("Yearly membership in USD"),
       member_discount_pct: z.number().describe("Member discount percent 0-90"),
       avg_night_price: z.number().describe("Average night price in USD"),
       nights_per_year: z.number().describe("Your yearly nights"),
     },
-    { title: "Loyalty break-even", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Loyalty break-even", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => loyaltyBreakEven(a)),
   );
 
   server.tool(
     "build_booking_request",
-    "Draft a booking-request message to send a hotel: hotel, date, name, nights and guests. Draft only, never sent.",
+    "Create a booking-request message for a hotel. Use when you need a draft message for a specific hotel and dates. Do NOT use when you need to find available stays; use find_stays.",
     {
       hotel: z.string().describe("Hotel to book"),
       date: z.string().describe("Check-in date YYYY-MM-DD"),
@@ -93,25 +93,25 @@ function buildServer(): McpServer {
       nights: z.number().optional().describe("Nights 1-30, default 1"),
       guests: z.number().optional().describe("Guests 1-10, default 2"),
     },
-    { title: "Build booking request", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Build booking request", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => buildBookingRequest(a)),
   );
 
   server.tool(
     "stay_reminders",
-    "Compute reminder datetimes before check-in from lead times in hours.",
+    "Calculate reminder times before check-in from lead times. Use when you need to send pre-arrival notifications. Do NOT use when you need to find existing stays, use find_stays.",
     {
       stay: z.string().describe("Stay booked"),
       starts_at: z.string().describe("Check-in, ISO datetime"),
       lead_hours: z.array(z.number()).optional().describe("Lead times in hours, default [24, 2]"),
     },
-    { title: "Stay reminders", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Stay reminders", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => stayReminders(a)),
   );
 
   server.tool(
     "trip_plan",
-    "Plan the most nights a budget buys: cheapest-first picks with total and leftover.",
+    "Calculate the maximum nights a budget buys, prioritizing cheapest stays first. Use when you need to maximize the number of nights within a budget. Do NOT use when you need to find available stays, use find_stays.",
     {
       budget: z.number().describe("Trip budget in USD"),
       nights: z.array(z.object({
@@ -119,7 +119,7 @@ function buildServer(): McpServer {
         price: z.number().describe("Night price in USD"),
       })).describe("Candidate nights"),
     },
-    { title: "Trip plan", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Trip plan", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => tripPlan(a)),
   );
 

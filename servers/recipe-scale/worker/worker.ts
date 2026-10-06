@@ -4,7 +4,7 @@ import { convertUnits, costPerServing, mergeShoppingList, scaleRecipe } from "..
 interface Env { API_KEY?: string; OPENAI_APPS_CHALLENGE_TOKEN?: string; }
 const VERSION = "1.0.0";
 const MAX_BODY = 1024 * 1024;
-const ANNOT = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+const ANNOT = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 
 type A = Record<string, unknown>;
 const req = (a: A, k: string, t: string): never | unknown => {
@@ -17,7 +17,7 @@ const req = (a: A, k: string, t: string): never | unknown => {
 
 const TOOLS = [
   { name: "scale_recipe", title: "Scale recipe",
-    description: "Scale every ingredient of a recipe from one serving count to another, with friendly kitchen measures and items without a quantity passed through.",
+    description: "Scale ingredients from one serving count to another. Use when you need to adjust serving sizes; NOT when you need to convert units, use convert_units.",
     inputSchema: { type: "object", properties: {
       ingredients: { type: "array", items: { type: "object", properties: {
         item: { type: "string", description: "Ingredient name, e.g. 'flour'" },
@@ -28,24 +28,94 @@ const TOOLS = [
       from_servings: { type: "number", description: "Servings the recipe is written for" },
       to_servings: { type: "number", description: "Servings you want" },
     }, required: ["ingredients", "from_servings", "to_servings"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "ingredients": {
+         "type": "array",
+         "description": "List of scaled ingredients",
+         "items": {
+          "type": "object",
+          "properties": {
+           "item": {
+            "type": "string",
+            "description": "Ingredient name"
+           },
+           "quantity": {
+            "type": "number",
+            "description": "Scaled amount; omitted for items like 'salt to taste'"
+           },
+           "unit": {
+            "type": "string",
+            "description": "Unit such as cup, tbsp, g or a count label like 'clove'"
+           },
+           "note": {
+            "type": "string",
+            "description": "Preparation note kept as-is, e.g. 'to taste'"
+           }
+          },
+          "required": [
+           "item"
+          ]
+         }
+        }
+       },
+       "required": [
+        "ingredients"
+       ]
+      },
     run: (a: A) => {
       req(a, "ingredients", "arr"); req(a, "from_servings", "num"); req(a, "to_servings", "num");
       return scaleRecipe(a as unknown as Parameters<typeof scaleRecipe>[0]);
     } },
   { name: "convert_units", title: "Convert units",
-    description: "Convert a cooking amount between units: same-dimension conversions are exact; cups to grams and similar need a known ingredient density.",
+    description: "Convert a cooking amount between units. Use when needing exact conversions between same-dimension units; avoid when needing ingredient-specific conversions, use scale_recipe instead.",
     inputSchema: { type: "object", properties: {
       value: { type: "number", description: "Amount to convert" },
       from: { type: "string", description: "Unit to convert from, e.g. cup" },
       to: { type: "string", description: "Unit to convert to, e.g. g" },
       ingredient: { type: "string", description: "Ingredient name, needed for volume <-> weight, e.g. flour" },
     }, required: ["value", "from", "to"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "convertedValue": {
+         "type": "number",
+         "description": "The converted amount in the target unit"
+        },
+        "fromUnit": {
+         "type": "string",
+         "description": "The unit that was converted from"
+        },
+        "toUnit": {
+         "type": "string",
+         "description": "The unit that was converted to"
+        },
+        "ingredient": {
+         "type": "string",
+         "description": "The ingredient name used for volume-to-weight conversion, if applicable"
+        },
+        "conversionFactor": {
+         "type": "number",
+         "description": "The factor used to convert between the units"
+        },
+        "error": {
+         "type": "string",
+         "description": "Error message if the conversion failed, e.g. unknown unit or ingredient"
+        }
+       },
+       "required": [
+        "convertedValue",
+        "fromUnit",
+        "toUnit"
+       ]
+      },
     run: (a: A) => {
       req(a, "value", "num"); req(a, "from", "str"); req(a, "to", "str");
       return convertUnits(a as unknown as Parameters<typeof convertUnits>[0]);
     } },
   { name: "merge_shopping_list", title: "Merge shopping list",
-    description: "Merge several shopping lists into one: quantities of the same item are summed in a common unit and shown in the friendliest kitchen unit; items without a quantity are collected as notes.",
+    description: "Merge multiple shopping lists into one. Use this when you have several lists to consolidate. Use scale_recipe when you need to adjust ingredient amounts for a different number of servings.",
     inputSchema: { type: "object", properties: {
       lists: { type: "array", items: { type: "object", properties: {
         name: { type: "string", description: "e.g. 'Saturday dinner'" },
@@ -56,12 +126,68 @@ const TOOLS = [
         }, required: ["item"] }, description: "Items on this list" },
       }, required: ["items"] }, description: "Shopping lists to merge" },
     }, required: ["lists"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "mergedList": {
+         "type": "object",
+         "description": "The consolidated shopping list",
+         "properties": {
+          "name": {
+           "type": "string",
+           "description": "Name of the merged list, e.g. 'Weekly Groceries'"
+          },
+          "items": {
+           "type": "array",
+           "description": "List of items with quantities and units",
+           "items": {
+            "type": "object",
+            "properties": {
+             "item": {
+              "type": "string",
+              "description": "Item to buy"
+             },
+             "quantity": {
+              "type": "number",
+              "description": "Total amount of the item"
+             },
+             "unit": {
+              "type": "string",
+              "description": "Friendliest kitchen unit for the item"
+             }
+            },
+            "required": [
+             "item",
+             "quantity",
+             "unit"
+            ]
+           }
+          },
+          "notes": {
+           "type": "array",
+           "description": "List of items without quantities",
+           "items": {
+            "type": "string",
+            "description": "Item to buy"
+           }
+          }
+         },
+         "required": [
+          "items",
+          "notes"
+         ]
+        }
+       },
+       "required": [
+        "mergedList"
+       ]
+      },
     run: (a: A) => {
       req(a, "lists", "arr");
       return mergeShoppingList(a as unknown as Parameters<typeof mergeShoppingList>[0]);
     } },
   { name: "cost_per_serving", title: "Cost per serving",
-    description: "Total the cost of the ingredients in a recipe and divide it by the servings to get cost per serving, also shown for 10 servings.",
+    description: "Calculate the cost per serving of a recipe. Use when you need to understand the cost efficiency of a recipe. Do NOT use when you need to adjust the quantity of ingredients in a recipe, use scale_recipe.",
     inputSchema: { type: "object", properties: {
       ingredients: { type: "array", items: { type: "object", properties: {
         item: { type: "string", description: "Ingredient name" },
@@ -70,6 +196,28 @@ const TOOLS = [
       servings: { type: "number", description: "How many servings the recipe makes" },
       currency: { type: "string", description: "Currency code for display, default USD" },
     }, required: ["ingredients", "servings"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "cost_per_serving": {
+         "type": "number",
+         "description": "The cost per serving in the specified currency"
+        },
+        "cost_for_10_servings": {
+         "type": "number",
+         "description": "The cost for 10 servings in the specified currency"
+        },
+        "currency": {
+         "type": "string",
+         "description": "The currency code used for the cost calculations"
+        }
+       },
+       "required": [
+        "cost_per_serving",
+        "cost_for_10_servings",
+        "currency"
+       ]
+      },
     run: (a: A) => {
       req(a, "ingredients", "arr"); req(a, "servings", "num");
       return costPerServing(a as unknown as Parameters<typeof costPerServing>[0]);
@@ -240,7 +388,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
       ttlMs: 3600000,
       cacheScope: "public",
     } }, 200, cors(request));
-    if (body.method === "tools/list") return json({ jsonrpc: "2.0", id, result: { tools: TOOLS.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema, annotations: { title: t.title, ...ANNOT } })) } }, 200, cors(request));
+    if (body.method === "tools/list") return json({ jsonrpc: "2.0", id, result: { tools: TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, outputSchema: t.outputSchema, annotations: { ...ANNOT } })) } }, 200, cors(request));
     if (body.method === "tools/call") {
       const tool = TOOLS.find((t) => t.name === body.params?.name);
       if (!tool) return json({ jsonrpc: "2.0", id, error: { code: -32602, message: `unknown tool '${body.params?.name}'` } }, 200, cors(request));

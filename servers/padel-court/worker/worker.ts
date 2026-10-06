@@ -6,7 +6,7 @@ import {
 interface Env { API_KEY?: string; OPENAI_APPS_CHALLENGE_TOKEN?: string; }
 
 const VERSION = "1.0.0";
-const RO = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+const RO = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 
 type A = Record<string, unknown>;
 const str = (v: unknown) => typeof v === "string";
@@ -18,54 +18,280 @@ const req = (a: A, k: string, t: "str" | "num") => {
 
 const TOOLS = [
   { name: "find_courts", title: "Find courts",
-    description: "Find padel clubs matching indoor, price and rating filters, ranked by rating, price and distance.",
+    description: "Filter courts within clubs by indoor, price and rating. Use when you need to filter courts by specific criteria, avoid when you need to quote a session, use quote_session instead.",
     inputSchema: { type: "object", properties: {
       clubs: { type: "array", description: "Clubs to search", items: { type: "object" } },
       indoor_only: { type: "boolean", description: "Only indoor courts" },
       max_price: { type: "number", description: "Max price per hour in USD" },
       min_rating: { type: "number", description: "Min rating 1-5" } }, required: ["clubs"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "filtered_courts": {
+         "type": "array",
+         "description": "List of courts that match the filtering criteria",
+         "items": {
+          "type": "object",
+          "properties": {
+           "club_name": {
+            "type": "string",
+            "description": "Name of the club where the court is located"
+           },
+           "court_id": {
+            "type": "string",
+            "description": "Unique identifier for the court"
+           },
+           "indoor": {
+            "type": "boolean",
+            "description": "Whether the court is indoor"
+           },
+           "price_per_hour": {
+            "type": "number",
+            "description": "Price per hour in USD"
+           },
+           "rating": {
+            "type": "number",
+            "description": "Rating of the court (1-5)"
+           }
+          },
+          "required": [
+           "club_name",
+           "court_id",
+           "indoor",
+           "price_per_hour",
+           "rating"
+          ]
+         }
+        }
+       },
+       "required": [
+        "filtered_courts"
+       ]
+      },
     annot: RO,
     run: (a: A) => findCourts(a as unknown as Parameters<typeof findCourts>[0]) },
   { name: "quote_session", title: "Quote session",
-    description: "Quote a padel session: hours, players and ball machine into a total plus per-player split.",
+    description: "Calculate the total and per-player cost for a padel session. Use when pricing a session with known parameters. Do NOT use for recurring sessions; use week_plan instead.",
     inputSchema: { type: "object", properties: {
       price_per_hour: { type: "number", description: "Court price per hour in USD" },
       hours: { type: "number", description: "0.5, 1, 1.5 or 2; default 1" },
       players: { type: "number", description: "Players splitting, 2-8, default 4" },
       ball_machine: { type: "boolean", description: "Add $15 ball machine" } }, required: ["price_per_hour"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "total_cost": {
+         "type": "number",
+         "description": "Total cost of the session in USD"
+        },
+        "cost_per_player": {
+         "type": "number",
+         "description": "Cost per player in USD"
+        },
+        "ball_machine_cost": {
+         "type": "number",
+         "description": "Cost of the ball machine in USD, if included"
+        },
+        "players": {
+         "type": "number",
+         "description": "Number of players splitting the cost"
+        },
+        "hours": {
+         "type": "number",
+         "description": "Duration of the session in hours"
+        }
+       },
+       "required": [
+        "total_cost",
+        "cost_per_player",
+        "players",
+        "hours"
+       ]
+      },
     annot: RO,
     run: (a: A) => { req(a, "price_per_hour", "num"); return quoteSession(a as unknown as Parameters<typeof quoteSession>[0]); } },
   { name: "membership_break_even", title: "Membership break-even",
-    description: "Compute how many sessions a month justify a club membership over pay-as-you-go, with a verdict at your volume.",
+    description: "Calculate the break-even point for a monthly membership versus pay-as-you-go sessions. Use when evaluating membership value; NOT when assessing court availability. Use find_courts instead.",
     inputSchema: { type: "object", properties: {
       membership_monthly: { type: "number", description: "Monthly membership in USD" },
       payg_per_session: { type: "number", description: "Pay-as-you-go price per session in USD" },
       sessions_per_month: { type: "number", description: "Your monthly sessions" } }, required: ["membership_monthly", "payg_per_session", "sessions_per_month"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "break_even_point": {
+         "type": "number",
+         "description": "The number of sessions at which the membership becomes more cost-effective than pay-as-you-go."
+        },
+        "cost_per_session_membership": {
+         "type": "number",
+         "description": "The effective cost per session if the membership is chosen."
+        },
+        "cost_per_session_payg": {
+         "type": "number",
+         "description": "The cost per session if pay-as-you-go is chosen."
+        },
+        "savings_per_month": {
+         "type": "number",
+         "description": "The monthly savings if the membership is chosen over pay-as-you-go."
+        }
+       },
+       "required": [
+        "break_even_point",
+        "cost_per_session_membership",
+        "cost_per_session_payg",
+        "savings_per_month"
+       ]
+      },
     annot: RO,
     run: (a: A) => { req(a, "membership_monthly", "num"); req(a, "payg_per_session", "num"); req(a, "sessions_per_month", "num"); return membershipBreakEven(a as unknown as Parameters<typeof membershipBreakEven>[0]); } },
   { name: "build_booking_request", title: "Build booking request",
-    description: "Draft a booking-request message to send a club: club, date, time, name and players. Draft only, never sent.",
+    description: "Send a booking-request message to a club. Use when you need to draft a message to send to a club. Do NOT use when you need to find available courts; use find_courts instead.",
     inputSchema: { type: "object", properties: {
       club: { type: "string", description: "Club to book" },
       date: { type: "string", description: "Date YYYY-MM-DD" },
       time: { type: "string", description: "Time HH:MM 24h" },
       name: { type: "string", description: "Your name" },
       players: { type: "number", description: "Players, 2-8, default 4" } }, required: ["club", "date", "time", "name"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "message": {
+         "type": "string",
+         "description": "The booking request message to send to the club."
+        },
+        "status": {
+         "type": "string",
+         "description": "The status of the booking request, e.g., 'pending', 'confirmed', 'rejected'."
+        },
+        "club": {
+         "type": "string",
+         "description": "The club to which the booking request was sent."
+        },
+        "date": {
+         "type": "string",
+         "description": "The date of the booking request in YYYY-MM-DD format."
+        },
+        "time": {
+         "type": "string",
+         "description": "The time of the booking request in HH:MM 24h format."
+        },
+        "name": {
+         "type": "string",
+         "description": "The name of the person who made the booking request."
+        },
+        "players": {
+         "type": "number",
+         "description": "The number of players for the booking request, between 2 and 8."
+        },
+        "requestId": {
+         "type": "string",
+         "description": "A unique identifier for the booking request."
+        }
+       },
+       "required": [
+        "message",
+        "status",
+        "club",
+        "date",
+        "time",
+        "name",
+        "requestId"
+       ]
+      },
     annot: RO,
     run: (a: A) => { req(a, "club", "str"); req(a, "date", "str"); req(a, "time", "str"); req(a, "name", "str"); return buildBookingRequest(a as unknown as Parameters<typeof buildBookingRequest>[0]); } },
   { name: "match_reminders", title: "Match reminders",
-    description: "Compute reminder datetimes before a match start from lead times in hours.",
+    description: "Schedule reminders for a match. Use when you need to schedule reminders for upcoming matches. Do NOT use when you need to find available courts; use find_courts instead.",
     inputSchema: { type: "object", properties: {
       match: { type: "string", description: "Match booked" },
       starts_at: { type: "string", description: "Match start, ISO datetime" },
       lead_hours: { type: "array", description: "Lead times in hours, default [24, 2]", items: { type: "number" } } }, required: ["match", "starts_at"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "match": {
+         "type": "string",
+         "description": "The match booked"
+        },
+        "starts_at": {
+         "type": "string",
+         "description": "The match start, ISO datetime"
+        },
+        "reminders": {
+         "type": "array",
+         "description": "List of reminder datetimes",
+         "items": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Reminder datetime"
+         }
+        }
+       },
+       "required": [
+        "match",
+        "starts_at",
+        "reminders"
+       ]
+      },
     annot: RO,
     run: (a: A) => { req(a, "match", "str"); req(a, "starts_at", "str"); return matchReminders(a as unknown as Parameters<typeof matchReminders>[0]); } },
   { name: "week_plan", title: "Week plan",
-    description: "Plan the most sessions a budget buys: cheapest-first picks with total and leftover.",
+    description: "Optimize weekly sessions within a budget, prioritizing cost-efficiency. Use for weekly spending optimization; NOT for single-session planning. Use quote_session for single-session pricing.",
     inputSchema: { type: "object", properties: {
       budget: { type: "number", description: "Weekly budget in USD" },
       sessions: { type: "array", description: "Candidate sessions", items: { type: "object" } } }, required: ["budget", "sessions"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "totalSessions": {
+         "type": "integer",
+         "description": "The total number of sessions scheduled within the budget."
+        },
+        "totalCost": {
+         "type": "number",
+         "description": "The total cost of the scheduled sessions in USD."
+        },
+        "scheduledSessions": {
+         "type": "array",
+         "description": "The list of sessions scheduled within the budget.",
+         "items": {
+          "type": "object",
+          "properties": {
+           "sessionId": {
+            "type": "string",
+            "description": "The unique identifier of the scheduled session."
+           },
+           "date": {
+            "type": "string",
+            "format": "date",
+            "description": "The date of the scheduled session."
+           },
+           "time": {
+            "type": "string",
+            "format": "time",
+            "description": "The time of the scheduled session."
+           },
+           "cost": {
+            "type": "number",
+            "description": "The cost of the scheduled session in USD."
+           }
+          },
+          "required": [
+           "sessionId",
+           "date",
+           "time",
+           "cost"
+          ]
+         }
+        }
+       },
+       "required": [
+        "totalSessions",
+        "totalCost",
+        "scheduledSessions"
+       ]
+      },
     annot: RO,
     run: (a: A) => { req(a, "budget", "num"); return weekPlan(a as unknown as Parameters<typeof weekPlan>[0]); } },
 ];
@@ -224,7 +450,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     if (body.method === "notifications/initialized")
       return new Response(null, { status: 202, headers: base });
     if (body.method === "tools/list")
-      return json({ jsonrpc: "2.0", id: body.id, result: { tools: TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, annotations: t.annot })) } }, 200, base);
+      return json({ jsonrpc: "2.0", id: body.id, result: { tools: TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, outputSchema: t.outputSchema, annotations: t.annot })) } }, 200, base);
     if (body.method === "tools/call") {
       const tool = TOOLS.find((t) => t.name === body.params?.name);
       if (!tool) return json({ jsonrpc: "2.0", id: body.id, error: { code: -32602, message: `unknown tool '${body.params?.name}'` } }, 200, base);

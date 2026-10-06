@@ -38,20 +38,20 @@ function buildServer(): McpServer {
 
   server.tool(
     "mow_schedule",
-    "Compute mow dates across a season on a weekday, every 1-4 weeks.",
+    "Schedule mowing dates for a season on a specific weekday. Use when planning a seasonal mowing schedule. Do NOT use when needing a quote for the season (use quote_season).",
     {
       season_start: z.string().describe("Season start YYYY-MM-DD"),
       season_end: z.string().describe("Season end YYYY-MM-DD"),
       weekday: z.string().optional().describe("Mow weekday, default saturday"),
       every_weeks: z.number().optional().describe("Interval 1-4 weeks, default 1"),
     },
-    { title: "Mow schedule", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Mow schedule", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => mowSchedule(a)),
   );
 
   server.tool(
     "quote_season",
-    "Quote a mowing season: cuts times price per cut plus optional extras like fertilizing.",
+    "Quote a mowing season's cost. Use when estimating seasonal pricing, NOT when scheduling specific mow dates (use mow_schedule).",
     {
       cuts: z.number().describe("Number of cuts, 1-60"),
       price_per_cut: z.number().describe("Price per cut in USD"),
@@ -60,13 +60,13 @@ function buildServer(): McpServer {
         price_usd: z.number().describe("Extra price in USD"),
       })).optional().describe("One-off extras"),
     },
-    { title: "Quote season", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Quote season", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => quoteSeason(a)),
   );
 
   server.tool(
     "compare_providers",
-    "Rank 2-6 lawn providers from your price, rating and visit numbers: 50% rating, 50% monthly cost.",
+    "Rank 2-6 lawn providers by rating and cost. Use when comparing multiple providers; avoid when needing a single quote, use quote_season.",
     {
       providers: z.array(z.object({
         name: z.string().describe("Provider name"),
@@ -75,13 +75,13 @@ function buildServer(): McpServer {
         visits_per_month: z.number().describe("Visits per month, 1-8"),
       })).describe("Providers to compare"),
     },
-    { title: "Compare providers", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Compare providers", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => compareProviders(a)),
   );
 
   server.tool(
     "build_service_request",
-    "Draft a service-request message to send a lawn provider: service, start date, frequency and name. Draft only, never sent.",
+    "Create a lawn service request draft with service, start date, frequency and name. Use when you need a draft message to send to a lawn provider. Do NOT use when you need to schedule a mowing, use mow_schedule instead.",
     {
       service: z.string().describe("Service wanted"),
       start_date: z.string().describe("Start date YYYY-MM-DD"),
@@ -90,28 +90,28 @@ function buildServer(): McpServer {
       phone: z.string().optional().describe("Callback number"),
       lot_size: z.string().optional().describe("Lot size, e.g. 'quarter acre'"),
     },
-    { title: "Build service request", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Build service request", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => buildServiceRequest(a)),
   );
 
   server.tool(
     "care_calendar",
-    "Get the annual lawn-care calendar for cool-season (fescue) or warm-season (bermuda) grass.",
+    "Retrieve the annual lawn-care calendar for a specific grass type. Use when planning seasonal lawn maintenance. Do NOT use when needing a mowing schedule; use mow_schedule instead.",
     {
       grass: z.string().describe("'cool' or 'warm'"),
     },
-    { title: "Care calendar", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Care calendar", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => careCalendar(a)),
   );
 
   server.tool(
     "mow_reminders",
-    "Compute reminder datetimes before each mow date, assuming a 9am mow.",
+    "Calculate reminder times before each mowing date. Use when needing to schedule notifications for lawn mowing. Do NOT use when needing to build a service request; use build_service_request instead.",
     {
       mow_dates: z.array(z.string()).describe("Mow dates YYYY-MM-DD, up to 12"),
       lead_hours: z.array(z.number()).optional().describe("Lead times in hours, default [24, 2]"),
     },
-    { title: "Mow reminders", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Mow reminders", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => mowReminders(a)),
   );
 

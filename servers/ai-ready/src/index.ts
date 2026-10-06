@@ -43,7 +43,7 @@ function buildServer(): McpServer {
 
   server.tool(
     "check_ai_readiness",
-    "Scan a domain for AI discoverability: which AI crawlers robots.txt blocks or allows (GPTBot, OAI-SearchBot, ClaudeBot, PerplexityBot...), llms.txt presence, sitemap, schema.org data, meta and Content Signals. Fetches only /robots.txt, /llms.txt, /sitemap.xml and the homepage over HTTPS.",
+    "Scan a domain for AI discoverability. Use when evaluating AI crawler access; NOT for detailed robots.txt analysis (use crawler_policy_guide).",
     { domain: z.string().describe("Domain or URL, e.g. example.com or https://example.com") },
     { title: "Check AI readiness", readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     async (a) => wrap(() => checkAiReadiness(a)),
@@ -51,40 +51,40 @@ function buildServer(): McpServer {
 
   server.tool(
     "crawler_policy_guide",
-    "Reference table of AI crawlers (owner, purpose, whether they drive AI visibility or training) with rules of thumb for allowing or blocking each.",
+    "Retrieve AI crawler policies for visibility and training. Use when evaluating AI crawler access; avoid when assessing website accessibility (use robots_txt_for_ai).",
     {},
-    { title: "Crawler policy guide", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Crawler policy guide", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async () => wrap(() => crawlerPolicyGuide()),
   );
 
   server.tool(
     "robots_txt_for_ai",
-    "Generate robots.txt rules for a chosen AI policy (max visibility, search-only, block training, block all AI), optionally with Content-Signal lines and a sitemap reference.",
+    "Generate robots.txt rules for a chosen AI policy. Use when configuring AI access to your site. Do NOT use when drafting a schema for structured data; use schema_jsonld_sample instead.",
     {
       policy: z.enum(["max_visibility", "search_only", "block_training", "block_all_ai"]),
       sitemap_url: z.string().optional().describe("e.g. https://example.com/sitemap.xml"),
       content_signals: z.boolean().optional().describe("Include Content-Signal lines (default true)"),
     },
-    { title: "Generate robots.txt for AI", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Generate robots.txt for AI", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => robotsTxtForAi(a)),
   );
 
   server.tool(
     "llms_txt_draft",
-    "Draft a starter llms.txt from your business name, one-line description, key pages and contact so AI agents get a curated summary of your site.",
+    "Generate an llms.txt file from your business name, description, key pages, and contact info. Use when you want to create a curated summary for AI agents. Do NOT use when you need to assess your site's AI readiness; use check_ai_readiness instead.",
     {
       business_name: z.string(),
       description: z.string().describe("One sentence on what you offer"),
       key_pages: z.array(z.object({ title: z.string(), url: z.string(), note: z.string().optional() })).optional(),
       contact_email: z.string().optional(),
     },
-    { title: "Draft llms.txt", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Draft llms.txt", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => llmsTxtDraft(a)),
   );
 
   server.tool(
     "schema_jsonld_sample",
-    "Generate a schema.org JSON-LD snippet (Organization, LocalBusiness, Product or FAQ) to paste into your page head for AI identification.",
+    "Generate a schema.org JSON-LD snippet for AI identification. Use when adding structured data to your website. Avoid when needing to check AI readiness, use check_ai_readiness instead.",
     {
       type: z.enum(["organization", "local_business", "product", "faq"]),
       name: z.string(),
@@ -95,7 +95,7 @@ function buildServer(): McpServer {
       price: z.string().optional().describe("e.g. '49 USD' for product"),
       questions: z.array(z.object({ question: z.string(), answer: z.string() })).optional().describe("For faq"),
     },
-    { title: "Generate JSON-LD sample", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Generate JSON-LD sample", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => schemaJsonldSample(a)),
   );
 

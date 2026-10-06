@@ -43,38 +43,38 @@ function buildServer(): McpServer {
 
   server.tool(
     "audit_fees",
-    "Audit a list of fees: annualize each one, total the yearly cost and monthly average, and flag charges above typical US ranges, duplicate names and disputable one-time fees.",
+    "Annualize and analyze a list of fees. Use when you need to identify unusual or duplicate charges. Do NOT use when you need to compare fees against industry benchmarks; use benchmark_fees instead.",
     {
       fees: z.array(Fee).describe("Fees to audit, each with name, amount, frequency and optional category"),
     },
-    { title: "Audit fees", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Audit fees", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => auditFees(a)),
   );
 
   server.tool(
     "annual_cost",
-    "Project the cumulative cost of a fee list over 1-30 years by straight multiplication (no compounding), with a per-fee breakdown. Defaults to 1 year.",
+    "Project annual costs for a fee list over a specified duration. Use for straightforward cost estimation. Do NOT use for complex financial modeling; use benchmark_fees instead.",
     {
       fees: z.array(Fee).describe("Fees to project"),
       years: z.number().optional().describe("Years to project (integer 1-30), default 1"),
     },
-    { title: "Annual cost", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Annual cost", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => annualCost(a)),
   );
 
   server.tool(
     "benchmark_fees",
-    "Look up typical US consumer fee ranges by category (bank fees, subscriptions, airline charges, tickets and more). Omit category to return the whole reference table.",
+    "Retrieve typical US consumer fee ranges by category. Use when needing fee benchmarks; avoid when auditing specific fees, use audit_fees instead.",
     {
       category: z.string().optional().describe("Category key to look up, e.g. bank_overdraft; omit for the full table"),
     },
-    { title: "Benchmark fees", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Benchmark fees", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => benchmarkFees(a)),
   );
 
   server.tool(
     "dispute_letter",
-    "Draft a firm, polite letter requesting a reversal or refund of a specific fee, including grounds, a 14-day written response request and escalation paths. Produces text only; nothing is sent.",
+    "Draft a dispute letter for a specific fee. Use when you need a formal dispute letter. Do NOT use when you need to audit fees; use audit_fees instead.",
     {
       fee_name: z.string().describe("Name of the fee being disputed"),
       amount: z.number().describe("Fee amount in USD"),
@@ -85,7 +85,7 @@ function buildServer(): McpServer {
       reason: z.string().optional().describe("Optional grounds for the dispute"),
       requested_action: z.string().optional().describe("What to ask for, e.g. 'reverse or refund' or 'waive'; default 'reverse or refund'"),
     },
-    { title: "Dispute letter", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Dispute letter", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => disputeLetter(a)),
   );
 

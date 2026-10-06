@@ -4,7 +4,7 @@ import { annualCost, auditFees, benchmarkFees, disputeLetter } from "../../mcp-s
 interface Env { API_KEY?: string; OPENAI_APPS_CHALLENGE_TOKEN?: string; }
 const VERSION = "1.0.0";
 const MAX_BODY = 1024 * 1024;
-const ANNOT = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+const ANNOT = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 
 type A = Record<string, unknown>;
 const req = (a: A, k: string, t: string): never | unknown => {
@@ -17,7 +17,7 @@ const req = (a: A, k: string, t: string): never | unknown => {
 
 const TOOLS = [
   { name: "audit_fees", title: "Audit fees",
-    description: "Audit a list of fees: annualize each one, total the yearly cost and monthly average, and flag charges above typical US ranges, duplicate names and disputable one-time fees.",
+    description: "Annualize and analyze a list of fees for anomalies. Use when needing to identify outliers and duplicates in fee structures. Avoid when needing to calculate annual costs only, use annual_cost instead.",
     inputSchema: { type: "object", properties: {
       fees: { type: "array", items: { type: "object", properties: {
         name: { type: "string", description: "Fee description, e.g. 'Overdraft fee'" },
@@ -26,14 +26,84 @@ const TOOLS = [
         category: { type: "string", description: "Optional benchmark category key, e.g. bank_overdraft" },
       }, required: ["name", "amount", "frequency"] }, description: "Fees to audit, each with name, amount, frequency and optional category" },
     }, required: ["fees"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "totalYearlyCost": {
+         "type": "number",
+         "description": "The sum of all annualized fees."
+        },
+        "monthlyAverage": {
+         "type": "number",
+         "description": "The average monthly cost of all fees."
+        },
+        "flags": {
+         "type": "array",
+         "items": {
+          "type": "object",
+          "properties": {
+           "name": {
+            "type": "string",
+            "description": "The name of the fee that triggered the flag."
+           },
+           "issue": {
+            "type": "string",
+            "enum": [
+             "above_typical_range",
+             "duplicate_name",
+             "disputable_one_time"
+            ],
+            "description": "The type of issue flagged for the fee."
+           },
+           "details": {
+            "type": "string",
+            "description": "Additional details about the flagged issue."
+           }
+          },
+          "required": [
+           "name",
+           "issue"
+          ]
+         },
+         "description": "A list of flags indicating issues with specific fees."
+        },
+        "annualizedFees": {
+         "type": "array",
+         "items": {
+          "type": "object",
+          "properties": {
+           "name": {
+            "type": "string",
+            "description": "The name of the fee."
+           },
+           "annualizedAmount": {
+            "type": "number",
+            "description": "The annualized amount of the fee."
+           }
+          },
+          "required": [
+           "name",
+           "annualizedAmount"
+          ]
+         },
+         "description": "A list of fees with their annualized amounts."
+        }
+       },
+       "required": [
+        "totalYearlyCost",
+        "monthlyAverage",
+        "flags",
+        "annualizedFees"
+       ]
+      },
     run: (a: A) => {
       req(a, "fees", "arr");
       return auditFees(a as unknown as Parameters<typeof auditFees>[0]);
     } },
   { name: "annual_cost", title: "Annual cost",
-    description: "Project the cumulative cost of a fee list over 1-30 years by straight multiplication (no compounding), with a per-fee breakdown. Defaults to 1 year.",
+    description: "Calculate the total cost of a fee list over a specified number of years. Use when projecting simple, non-compounded costs. Do not use when needing to analyze historical fee data; use audit_fees instead.",
     inputSchema: { type: "object", properties: {
-      fees: { type: "array", items: { type: "object", properties: {
+      fees: { description: "List of yearly fees as numbers in ISO currency code", type: "array", items: { type: "object", properties: {
         name: { type: "string" },
         amount: { type: "number" },
         frequency: { type: "string", enum: ["monthly", "annual", "one-time"] },
@@ -41,18 +111,135 @@ const TOOLS = [
       }, required: ["name", "amount", "frequency"] } },
       years: { type: "number", description: "Years to project (integer 1-30), default 1" },
     }, required: ["fees"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "totalCost": {
+         "type": "number",
+         "description": "The cumulative cost of all fees over the specified number of years."
+        },
+        "yearlyBreakdown": {
+         "type": "array",
+         "description": "The cost of all fees for each year in the projection.",
+         "items": {
+          "type": "object",
+          "properties": {
+           "year": {
+            "type": "integer",
+            "description": "The year number in the projection."
+           },
+           "cost": {
+            "type": "number",
+            "description": "The total cost for that year."
+           }
+          },
+          "required": [
+           "year",
+           "cost"
+          ]
+         }
+        },
+        "feeBreakdown": {
+         "type": "array",
+         "description": "The cost of each fee over the specified number of years.",
+         "items": {
+          "type": "object",
+          "properties": {
+           "name": {
+            "type": "string",
+            "description": "The name of the fee."
+           },
+           "totalAmount": {
+            "type": "number",
+            "description": "The total cost of the fee over the specified number of years."
+           },
+           "yearlyAmounts": {
+            "type": "array",
+            "description": "The cost of the fee for each year in the projection.",
+            "items": {
+             "type": "object",
+             "properties": {
+              "year": {
+               "type": "integer",
+               "description": "The year number in the projection."
+              },
+              "amount": {
+               "type": "number",
+               "description": "The cost of the fee for that year."
+              }
+             },
+             "required": [
+              "year",
+              "amount"
+             ]
+            }
+           }
+          },
+          "required": [
+           "name",
+           "totalAmount",
+           "yearlyAmounts"
+          ]
+         }
+        }
+       },
+       "required": [
+        "totalCost",
+        "yearlyBreakdown",
+        "feeBreakdown"
+       ]
+      },
     run: (a: A) => {
       req(a, "fees", "arr");
       return annualCost(a as unknown as Parameters<typeof annualCost>[0]);
     } },
   { name: "benchmark_fees", title: "Benchmark fees",
-    description: "Look up typical US consumer fee ranges by category (bank fees, subscriptions, airline charges, tickets and more). Omit category to return the whole reference table.",
+    description: "Retrieve typical US consumer fee ranges by category. Use when needing a quick reference for fee benchmarks. Avoid when auditing specific fee charges, use audit_fees instead.",
     inputSchema: { type: "object", properties: {
       category: { type: "string", description: "Category key to look up, e.g. bank_overdraft; omit for the full table" },
     } },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "category": {
+         "type": "string",
+         "description": "The category key looked up, e.g. bank_overdraft; or 'all' if the full table was returned."
+        },
+        "fees": {
+         "type": "array",
+         "description": "List of typical fee ranges for the category.",
+         "items": {
+          "type": "object",
+          "properties": {
+           "fee_type": {
+            "type": "string",
+            "description": "The specific fee type within the category, e.g. 'overdraft fee'."
+           },
+           "min": {
+            "type": "number",
+            "description": "The minimum typical fee amount."
+           },
+           "max": {
+            "type": "number",
+            "description": "The maximum typical fee amount."
+           }
+          },
+          "required": [
+           "fee_type",
+           "min",
+           "max"
+          ]
+         }
+        }
+       },
+       "required": [
+        "category",
+        "fees"
+       ]
+      },
     run: (a: A) => benchmarkFees(a as unknown as Parameters<typeof benchmarkFees>[0]) },
   { name: "dispute_letter", title: "Dispute letter",
-    description: "Draft a firm, polite letter requesting a reversal or refund of a specific fee, including grounds, a 14-day written response request and escalation paths. Produces text only; nothing is sent.",
+    description: "Generate a dispute letter for a specific fee. Use when you have a clear case for a refund or reversal. Do NOT use when you need to analyze multiple fees; use audit_fees instead.",
     inputSchema: { type: "object", properties: {
       fee_name: { type: "string", description: "Name of the fee being disputed" },
       amount: { type: "number", description: "Fee amount in USD" },
@@ -63,6 +250,28 @@ const TOOLS = [
       reason: { type: "string", description: "Optional grounds for the dispute" },
       requested_action: { type: "string", description: "What to ask for, e.g. 'reverse or refund' or 'waive'; default 'reverse or refund'" },
     }, required: ["fee_name", "amount", "company", "your_name"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "letter": {
+         "type": "string",
+         "description": "The full text of the dispute letter."
+        },
+        "subject": {
+         "type": "string",
+         "description": "The subject line of the letter."
+        },
+        "recipient": {
+         "type": "string",
+         "description": "The recipient of the letter, inferred from the company name."
+        }
+       },
+       "required": [
+        "letter",
+        "subject",
+        "recipient"
+       ]
+      },
     run: (a: A) => {
       req(a, "fee_name", "str"); req(a, "amount", "num"); req(a, "company", "str"); req(a, "your_name", "str");
       return disputeLetter(a as unknown as Parameters<typeof disputeLetter>[0]);
@@ -233,7 +442,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
       ttlMs: 3600000,
       cacheScope: "public",
     } }, 200, cors(request));
-    if (body.method === "tools/list") return json({ jsonrpc: "2.0", id, result: { tools: TOOLS.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema, annotations: { title: t.title, ...ANNOT } })) } }, 200, cors(request));
+    if (body.method === "tools/list") return json({ jsonrpc: "2.0", id, result: { tools: TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, outputSchema: t.outputSchema, annotations: { ...ANNOT } })) } }, 200, cors(request));
     if (body.method === "tools/call") {
       const tool = TOOLS.find((t) => t.name === body.params?.name);
       if (!tool) return json({ jsonrpc: "2.0", id, error: { code: -32602, message: `unknown tool '${body.params?.name}'` } }, 200, cors(request));

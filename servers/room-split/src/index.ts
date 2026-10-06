@@ -35,7 +35,7 @@ function buildServer(): McpServer {
 
   server.tool(
     "split_rent",
-    "Split monthly rent across rooms - equally or by room size - showing each room's share and, for shared rooms, each occupant's share.",
+    "Split monthly rent across rooms. Use when rent is divided by room size or equally. NOT for dividing utilities; use split_utilities instead.",
     {
       total_rent: z.number().describe("Monthly rent for the whole house"),
       rooms: z.array(z.object({
@@ -45,13 +45,13 @@ function buildServer(): McpServer {
       })).describe("Rooms in the house"),
       method: z.enum(["equal", "by_size"]).optional().describe("Split method; default by_size when every room has a size, else equal"),
     },
-    { title: "Split rent", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Split rent", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => splitRent(a)),
   );
 
   server.tool(
     "split_utilities",
-    "Split utility and household bills across housemates - equally, by occupants per room, or by usage - and total what each person owes.",
+    "Split utility bills among housemates. Use when bills are shared equally or by usage; NOT when splitting rent (use split_rent).",
     {
       bills: z.array(z.object({
         name: z.string().describe("Bill label, e.g. 'Electricity'"),
@@ -64,13 +64,13 @@ function buildServer(): McpServer {
         usage_weight: z.number().optional().describe("Relative usage (by_usage bills), e.g. 0.5 for a light user"),
       })).describe("People sharing the house"),
     },
-    { title: "Split utilities", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Split utilities", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => splitUtilities(a)),
   );
 
   server.tool(
     "settle_up",
-    "Given shared household costs and what each housemate already paid, compute balances and the minimal set of payments to settle everyone.",
+    "Calculate the minimal payments to settle shared household costs. Use when splitting costs among roommates, NOT when splitting utilities.",
     {
       costs: z.array(z.object({
         name: z.string().describe("Cost label, e.g. 'Weekly shop'"),
@@ -81,13 +81,13 @@ function buildServer(): McpServer {
         paid: z.number().describe("Amount this housemate has already paid (0 if nothing yet)"),
       })).describe("What each housemate paid"),
     },
-    { title: "Settle up", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Settle up", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => settleUp(a)),
   );
 
   server.tool(
     "roommate_agreement",
-    "Draft a plain-language shared-living agreement: parties, term, rent split, deposit handling, utilities policy, house rules, notice period and signature blocks.",
+    "Create a shared-living agreement for a group of tenants. Use when drafting a new agreement for a group living situation. Do NOT use when calculating rent split for existing tenants, use split_rent instead.",
     {
       property_address: z.string().describe("Address of the shared home"),
       tenants: z.array(z.string()).describe("All tenants (at least 2)"),
@@ -102,7 +102,7 @@ function buildServer(): McpServer {
       notice_period_months: z.number().optional().describe("Notice period in months, default 1"),
       house_rules: z.array(z.string()).optional().describe("Custom house rules; default covers quiet hours, guests, cleaning rota and shared supplies"),
     },
-    { title: "Roommate agreement", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Roommate agreement", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => roommateAgreement(a)),
   );
 

@@ -51,18 +51,18 @@ function buildServer(): McpServer {
 
   server.tool(
     "triage_symptom",
-    "Triage an HVAC symptom: severity (emergency/same_day/routine), safety steps, likely causes and whether to call a pro.",
+    "Triage an HVAC symptom for severity and next steps. Use when a customer reports an issue; avoid when scheduling a routine maintenance with tuneup_schedule.",
     {
       symptom: z.string().describe("gas_smell, burning_smell, no_cool, no_heat, strange_noise, water_leak or high_bill"),
       details: z.string().optional().describe("Extra details from the caller"),
     },
-    { title: "Triage symptom", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Triage symptom", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => triageSymptom(a)),
   );
 
   server.tool(
     "find_slots",
-    "Find open start times in availability windows that fit a job length, every 30 minutes.",
+    "Find open start times in availability windows that fit a job length, every 30 minutes. Use when scheduling jobs; NOT for real-time tech tracking, use compare_techs.",
     {
       availability: z.array(Window).describe("Tech availability windows"),
       day: z.string().optional().describe("Filter to a weekday"),
@@ -70,25 +70,25 @@ function buildServer(): McpServer {
       after: z.string().optional().describe("Only slots ending after HH:MM"),
       before: z.string().optional().describe("Only slots starting before HH:MM"),
     },
-    { title: "Find slots", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Find slots", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => findSlots(a)),
   );
 
   server.tool(
     "quote_job",
-    "Quote an HVAC job with add-ons from a pricebook: line items, total price and total minutes.",
+    "Quote an HVAC job with add-ons from a pricebook. Use when you need to generate a quote for a job with specific add-ons. Do NOT use when you need to find available time slots for a job.",
     {
       pricebook: z.array(PriceItem).describe("Tech pricebook"),
       job: z.string().describe("Job to quote"),
       add_ons: z.array(z.string()).optional().describe("Add-on job names"),
     },
-    { title: "Quote job", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Quote job", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => quoteJob(a)),
   );
 
   server.tool(
     "compare_techs",
-    "Rank 2-6 HVAC techs from your price, rating and distance numbers: 50% rating, 30% price, 20% distance.",
+    "Rank HVAC techs by price, rating, and distance. Use when you have multiple quotes and need to decide who to hire. Do NOT use when you need to schedule a tune-up; use tuneup_schedule instead.",
     {
       techs: z.array(z.object({
         name: z.string().describe("Tech name"),
@@ -97,13 +97,13 @@ function buildServer(): McpServer {
         distance_min: z.number().describe("Travel minutes"),
       })).describe("Techs to compare"),
     },
-    { title: "Compare techs", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Compare techs", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => compareTechs(a)),
   );
 
   server.tool(
     "build_dispatch_request",
-    "Draft a dispatch-request message to send an HVAC tech: job, date, time, name and systems. Draft only, never sent.",
+    "Create a dispatch-request message for an HVAC tech: use when you have all details and need a draft. Do NOT use when you need to find available time slots, use find_slots.",
     {
       job: z.string().describe("Job needed"),
       date: z.string().describe("Date YYYY-MM-DD"),
@@ -112,19 +112,19 @@ function buildServer(): McpServer {
       phone: z.string().optional().describe("Callback number"),
       units: z.number().optional().describe("Systems, 1-10, default 1"),
     },
-    { title: "Build dispatch request", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Build dispatch request", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => buildDispatchRequest(a)),
   );
 
   server.tool(
     "tuneup_schedule",
-    "Compute the next N HVAC tuneup dates every K months after a last tuneup.",
+    "Schedule N HVAC tuneups every K months after a last tuneup. Use when planning future maintenance; avoid when needing immediate service, use find_slots.",
     {
       last_tuneup: z.string().describe("Last tuneup YYYY-MM-DD"),
       every_months: z.number().optional().describe("Interval in months, 1-24, default 6"),
       count: z.number().optional().describe("How many dates, 1-12, default 4"),
     },
-    { title: "Tuneup schedule", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Tuneup schedule", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => tuneupSchedule(a)),
   );
 

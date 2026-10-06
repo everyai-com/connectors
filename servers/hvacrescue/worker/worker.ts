@@ -6,7 +6,7 @@ import {
 interface Env { API_KEY?: string; OPENAI_APPS_CHALLENGE_TOKEN?: string; }
 
 const VERSION = "1.0.0";
-const RO = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+const RO = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 
 type A = Record<string, unknown>;
 const str = (v: unknown) => typeof v === "string";
@@ -18,38 +18,207 @@ const req = (a: A, k: string, t: "str" | "num") => {
 
 const TOOLS = [
   { name: "triage_symptom", title: "Triage symptom",
-    description: "Triage an HVAC symptom: severity (emergency/same_day/routine), safety steps, likely causes and whether to call a pro.",
+    description: "Assess an HVAC symptom: severity, safety steps, likely causes and whether to call a pro. Use when a customer reports an issue. Do NOT use when scheduling a tune-up; use tuneup_schedule.",
     inputSchema: { type: "object", properties: {
       symptom: { type: "string", description: "gas_smell, burning_smell, no_cool, no_heat, strange_noise, water_leak or high_bill" },
       details: { type: "string", description: "Extra details from the caller" } }, required: ["symptom"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "severity": {
+         "type": "string",
+         "enum": [
+          "emergency",
+          "same_day",
+          "routine"
+         ],
+         "description": "The urgency level of the symptom"
+        },
+        "safety_steps": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         },
+         "description": "List of safety steps to take immediately"
+        },
+        "likely_causes": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         },
+         "description": "Possible reasons for the symptom"
+        },
+        "call_pro": {
+         "type": "boolean",
+         "description": "Whether a professional should be called"
+        },
+        "additional_info": {
+         "type": "string",
+         "description": "Any extra information or advice based on the symptom and details provided"
+        }
+       },
+       "required": [
+        "severity",
+        "safety_steps",
+        "likely_causes",
+        "call_pro"
+       ]
+      },
     annot: RO,
     run: (a: A) => { req(a, "symptom", "str"); return triageSymptom(a as unknown as Parameters<typeof triageSymptom>[0]); } },
   { name: "find_slots", title: "Find slots",
-    description: "Find open start times in availability windows that fit a job length, every 30 minutes.",
+    description: "Find open start times in availability windows that fit a job length, every 30 minutes. Use when you need to schedule a job within specific time constraints. Do NOT use when you need to diagnose a customer issue; use triage_symptom instead.",
     inputSchema: { type: "object", properties: {
       availability: { type: "array", description: "Tech availability windows", items: { type: "object" } },
       day: { type: "string", description: "Filter to a weekday" },
       duration_min: { type: "number", description: "Job length in minutes, 15-240, default 60" },
       after: { type: "string", description: "Only slots ending after HH:MM" },
       before: { type: "string", description: "Only slots starting before HH:MM" } }, required: ["availability"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "results": {
+         "type": "array",
+         "description": "List of available time slots",
+         "items": {
+          "type": "object",
+          "properties": {
+           "start_time": {
+            "type": "string",
+            "description": "The start time of the slot in HH:MM format"
+           },
+           "end_time": {
+            "type": "string",
+            "description": "The end time of the slot in HH:MM format"
+           },
+           "duration_min": {
+            "type": "number",
+            "description": "The duration of the slot in minutes"
+           }
+          },
+          "required": [
+           "start_time",
+           "end_time",
+           "duration_min"
+          ]
+         }
+        }
+       },
+       "required": [
+        "results"
+       ]
+      },
     annot: RO,
     run: (a: A) => findSlots(a as unknown as Parameters<typeof findSlots>[0]) },
   { name: "quote_job", title: "Quote job",
-    description: "Quote an HVAC job with add-ons from a pricebook: line items, total price and total minutes.",
+    description: "Calculate the price and time for an HVAC job with add-ons from a pricebook. Use when estimating costs for a job. Do NOT use when scheduling a job; use find_slots instead.",
     inputSchema: { type: "object", properties: {
       pricebook: { type: "array", description: "Tech pricebook", items: { type: "object" } },
       job: { type: "string", description: "Job to quote" },
       add_ons: { type: "array", description: "Add-on job names", items: { type: "string" } } }, required: ["pricebook", "job"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "job": {
+         "type": "string",
+         "description": "The name of the job being quoted"
+        },
+        "total_price": {
+         "type": "number",
+         "description": "The total price for the job including add-ons"
+        },
+        "total_minutes": {
+         "type": "integer",
+         "description": "The total estimated time in minutes for the job including add-ons"
+        },
+        "line_items": {
+         "type": "array",
+         "description": "The breakdown of the job and add-ons with their respective prices and times",
+         "items": {
+          "type": "object",
+          "properties": {
+           "name": {
+            "type": "string",
+            "description": "The name of the job or add-on"
+           },
+           "price": {
+            "type": "number",
+            "description": "The price for the job or add-on"
+           },
+           "minutes": {
+            "type": "integer",
+            "description": "The estimated time in minutes for the job or add-on"
+           }
+          },
+          "required": [
+           "name",
+           "price",
+           "minutes"
+          ]
+         }
+        }
+       },
+       "required": [
+        "job",
+        "total_price",
+        "total_minutes",
+        "line_items"
+       ]
+      },
     annot: RO,
     run: (a: A) => { req(a, "job", "str"); return quoteJob(a as unknown as Parameters<typeof quoteJob>[0]); } },
   { name: "compare_techs", title: "Compare techs",
-    description: "Rank 2-6 HVAC techs from your price, rating and distance numbers: 50% rating, 30% price, 20% distance.",
+    description: "Rank HVAC techs by price, rating, and distance. Use when you need to prioritize techs for dispatch. NOT for scheduling tune-ups; use tuneup_schedule.",
     inputSchema: { type: "object", properties: {
       techs: { type: "array", description: "Techs to compare", items: { type: "object" } } }, required: ["techs"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "rankedTechs": {
+         "type": "array",
+         "description": "List of techs ranked by the specified criteria",
+         "items": {
+          "type": "object",
+          "properties": {
+           "techId": {
+            "type": "string",
+            "description": "Unique identifier for the tech"
+           },
+           "rank": {
+            "type": "integer",
+            "description": "Rank of the tech based on the criteria"
+           },
+           "rating": {
+            "type": "number",
+            "description": "Rating of the tech"
+           },
+           "price": {
+            "type": "number",
+            "description": "Price quoted by the tech"
+           },
+           "distance": {
+            "type": "number",
+            "description": "Distance of the tech from the job location"
+           }
+          },
+          "required": [
+           "techId",
+           "rank",
+           "rating",
+           "price",
+           "distance"
+          ]
+         }
+        }
+       },
+       "required": [
+        "rankedTechs"
+       ]
+      },
     annot: RO,
     run: (a: A) => compareTechs(a as unknown as Parameters<typeof compareTechs>[0]) },
   { name: "build_dispatch_request", title: "Build dispatch request",
-    description: "Draft a dispatch-request message to send an HVAC tech: job, date, time, name and systems. Draft only, never sent.",
+    description: "Create a dispatch request for an HVAC tech: use when you have all the details and want to draft a request. Do NOT use when you need to find available time slots, use find_slots.",
     inputSchema: { type: "object", properties: {
       job: { type: "string", description: "Job needed" },
       date: { type: "string", description: "Date YYYY-MM-DD" },
@@ -57,14 +226,107 @@ const TOOLS = [
       name: { type: "string", description: "Your name" },
       phone: { type: "string", description: "Callback number" },
       units: { type: "number", description: "Systems, 1-10, default 1" } }, required: ["job", "date", "time", "name"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "message": {
+         "type": "string",
+         "description": "The draft dispatch request message."
+        },
+        "recipient": {
+         "type": "string",
+         "description": "The intended recipient of the dispatch request."
+        },
+        "details": {
+         "type": "object",
+         "description": "The details of the dispatch request.",
+         "properties": {
+          "job": {
+           "type": "string",
+           "description": "The job needed."
+          },
+          "date": {
+           "type": "string",
+           "description": "The date of the job in YYYY-MM-DD format."
+          },
+          "time": {
+           "type": "string",
+           "description": "The time of the job in HH:MM 24h format."
+          },
+          "name": {
+           "type": "string",
+           "description": "The name of the requester."
+          },
+          "phone": {
+           "type": "string",
+           "description": "The callback number for the requester."
+          },
+          "units": {
+           "type": "number",
+           "description": "The number of systems, between 1 and 10."
+          }
+         },
+         "required": [
+          "job",
+          "date",
+          "time",
+          "name"
+         ]
+        }
+       },
+       "required": [
+        "message",
+        "recipient",
+        "details"
+       ]
+      },
     annot: RO,
     run: (a: A) => { req(a, "job", "str"); req(a, "date", "str"); req(a, "time", "str"); req(a, "name", "str"); return buildDispatchRequest(a as unknown as Parameters<typeof buildDispatchRequest>[0]); } },
   { name: "tuneup_schedule", title: "Tuneup schedule",
-    description: "Compute the next N HVAC tuneup dates every K months after a last tuneup.",
+    description: "Schedule N HVAC tuneups every K months after a last tuneup. Use when planning maintenance; NOT for emergency repairs, use triage_symptom.",
     inputSchema: { type: "object", properties: {
       last_tuneup: { type: "string", description: "Last tuneup YYYY-MM-DD" },
       every_months: { type: "number", description: "Interval in months, 1-24, default 6" },
       count: { type: "number", description: "How many dates, 1-12, default 4" } }, required: ["last_tuneup"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "results": {
+         "type": "array",
+         "description": "List of tuneup schedule entries.",
+         "items": {
+          "type": "object",
+          "properties": {
+           "tuneup_date": {
+            "type": "string",
+            "description": "The scheduled tuneup date in YYYY-MM-DD format."
+           },
+           "day_of_week": {
+            "type": "string",
+            "description": "The day of the week for the scheduled tuneup."
+           },
+           "month": {
+            "type": "number",
+            "description": "The month of the year for the scheduled tuneup."
+           },
+           "year": {
+            "type": "number",
+            "description": "The year for the scheduled tuneup."
+           }
+          },
+          "required": [
+           "tuneup_date",
+           "day_of_week",
+           "month",
+           "year"
+          ]
+         }
+        }
+       },
+       "required": [
+        "results"
+       ]
+      },
     annot: RO,
     run: (a: A) => { req(a, "last_tuneup", "str"); return tuneupSchedule(a as unknown as Parameters<typeof tuneupSchedule>[0]); } },
 ];
@@ -223,7 +485,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     if (body.method === "notifications/initialized")
       return new Response(null, { status: 202, headers: base });
     if (body.method === "tools/list")
-      return json({ jsonrpc: "2.0", id: body.id, result: { tools: TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, annotations: t.annot })) } }, 200, base);
+      return json({ jsonrpc: "2.0", id: body.id, result: { tools: TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, outputSchema: t.outputSchema, annotations: t.annot })) } }, 200, base);
     if (body.method === "tools/call") {
       const tool = TOOLS.find((t) => t.name === body.params?.name);
       if (!tool) return json({ jsonrpc: "2.0", id: body.id, error: { code: -32602, message: `unknown tool '${body.params?.name}'` } }, 200, base);

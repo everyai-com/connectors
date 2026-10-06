@@ -35,19 +35,19 @@ function buildServer(): McpServer {
 
   server.tool(
     "round_robin_schedule",
-    "Build a circle-method round-robin fixture schedule: every pair of teams meets once, or twice when second_leg is set. Odd team counts get one bye per round.",
+    "Generate a round-robin fixture schedule for teams. Use when needing a balanced schedule with equal opportunities for each team to play others. Avoid when needing a single matchday plan, use match_day_plan.",
     {
       teams: z.array(z.string()).describe("Team names (2 or more, unique)"),
       rounds: z.number().optional().describe("Optional number of rounds to return (1..full schedule)"),
       second_leg: z.boolean().optional().describe("Also schedule the reverse fixtures for a double round-robin"),
     },
-    { title: "Round robin schedule", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Round robin schedule", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => roundRobinSchedule(a)),
   );
 
   server.tool(
     "standings_table",
-    "Aggregate match results into a league table with played, wins, draws, losses, goals for/against, goal difference and points, sorted by points, then goal difference, then goals for, then name.",
+    "Aggregate match results into a league standings table. Use when you need a summary of the league's progress. Do NOT use when you need to plan future matches; use round_robin_schedule instead.",
     {
       results: z.array(z.object({
         home: z.string().describe("Home team name"),
@@ -59,13 +59,13 @@ function buildServer(): McpServer {
       points_win: z.number().optional().describe("Points for a win, default 3"),
       points_draw: z.number().optional().describe("Points for a draw, default 1"),
     },
-    { title: "Standings table", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Standings table", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => standingsTable(a)),
   );
 
   server.tool(
     "match_day_plan",
-    "Lay an ordered list of games onto a courts-by-slots time grid: game i goes to court (i mod courts) in slot (i div courts) and each slot is slot_minutes long, starting at start_time.",
+    "Schedule games onto courts and time slots. Use when you need to create a match day plan from a list of games. NOT for creating a round-robin schedule, use round_robin_schedule instead.",
     {
       games: z.array(z.object({
         home: z.string().describe("Home team name"),
@@ -75,13 +75,13 @@ function buildServer(): McpServer {
       slot_minutes: z.number().describe("Minutes per time slot (10-180)"),
       start_time: z.string().describe('First kick-off, 24h "HH:MM"'),
     },
-    { title: "Match day plan", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Match day plan", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => matchDayPlan(a)),
   );
 
   server.tool(
     "season_plan",
-    "Size a season end-to-end: total fixtures from the round-robin, games per match day given the courts available, match days needed, and the calendar dates from a start date to the estimated finish date.",
+    "Calculate the season plan end-to-end. Use when you need a full season overview. Do NOT use when you need only the match day plan; use match_day_plan instead.",
     {
       teams: z.array(z.string()).describe("Team names (2 or more, unique)"),
       courts: z.number().describe("Courts available per match day (1-12)"),
@@ -90,7 +90,7 @@ function buildServer(): McpServer {
       days_between_rounds: z.number().optional().describe("Days between match days, default 7"),
       second_leg: z.boolean().optional().describe("Plan a double round-robin (each pair meets twice)"),
     },
-    { title: "Season plan", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Season plan", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => seasonPlan(a)),
   );
 

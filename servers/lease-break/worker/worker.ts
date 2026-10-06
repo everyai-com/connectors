@@ -4,7 +4,7 @@ import { compareOptions, estimateBreakCost, negotiationChecklist, noticeLetter }
 interface Env { API_KEY?: string; OPENAI_APPS_CHALLENGE_TOKEN?: string; }
 const VERSION = "1.0.0";
 const MAX_BODY = 1024 * 1024;
-const ANNOT = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+const ANNOT = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 
 type A = Record<string, unknown>;
 const req = (a: A, k: string, t: string): never | unknown => {
@@ -17,60 +17,350 @@ const req = (a: A, k: string, t: string): never | unknown => {
 const BREAK_PROPS = {
   monthly_rent: { type: "number", description: "Monthly rent" },
   months_remaining: { type: "number", description: "Months left on the lease (including the current one)" },
-  deposit: { type: "number" },
+  deposit: { description: "Initial deposit amount as a number", type: "number" },
   break_fee_months: { type: "number", description: "Early-termination fee in months' rent" },
-  notice_months: { type: "number" },
-  reletting_fee: { type: "number" },
-  expected_relet_months: { type: "number" },
-  landlord_mitigates: { type: "boolean" },
-  currency: { type: "string" },
+  notice_months: { description: "Number of months' notice required to terminate the lease", type: "number" },
+  reletting_fee: { description: "Fee for reletting the property as a number", type: "number" },
+  expected_relet_months: { description: "Expected months to relett the property as a number", type: "number" },
+  landlord_mitigates: { description: "True if landlord mitigates damages, false otherwise", type: "boolean" },
+  currency: { description: "Currency code in ISO 4217 format", type: "string" },
 };
 
 const TOOLS = [
   { name: "estimate_break_cost", title: "Estimate break cost",
-    description: "Itemised estimate of what ending a lease early costs: notice-period rent, break fee, re-letting fee, rent-until-relet and deposit credit.",
+    description: "Calculate break cost for a lease. Use when you need a detailed breakdown of early termination costs. Do NOT use when comparing different lease options; use compare_options instead.",
     inputSchema: { type: "object", properties: BREAK_PROPS, required: ["monthly_rent", "months_remaining"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "total_cost": {
+         "type": "number",
+         "description": "The total cost of breaking the lease."
+        },
+        "notice_period_rent": {
+         "type": "number",
+         "description": "The cost of rent during the notice period."
+        },
+        "break_fee": {
+         "type": "number",
+         "description": "The early-termination fee."
+        },
+        "reletting_fee": {
+         "type": "number",
+         "description": "The fee charged by the landlord or agent for re-letting the property."
+        },
+        "rent_until_relet": {
+         "type": "number",
+         "description": "The estimated rent cost until the property is re-let."
+        },
+        "deposit_credit": {
+         "type": "number",
+         "description": "The amount of deposit that will be returned."
+        },
+        "currency": {
+         "type": "string",
+         "description": "The currency in which the costs are calculated."
+        },
+        "cost_breakdown": {
+         "type": "array",
+         "description": "A detailed breakdown of the costs.",
+         "items": {
+          "type": "object",
+          "properties": {
+           "description": {
+            "type": "string",
+            "description": "A description of the cost item."
+           },
+           "amount": {
+            "type": "number",
+            "description": "The amount of the cost item."
+           }
+          },
+          "required": [
+           "description",
+           "amount"
+          ]
+         }
+        }
+       },
+       "required": [
+        "total_cost",
+        "notice_period_rent",
+        "break_fee",
+        "reletting_fee",
+        "rent_until_relet",
+        "deposit_credit",
+        "currency",
+        "cost_breakdown"
+       ]
+      },
     run: (a: A) => {
       req(a, "monthly_rent", "num"); req(a, "months_remaining", "num");
       return estimateBreakCost(a as unknown as Parameters<typeof estimateBreakCost>[0]);
     } },
   { name: "compare_options", title: "Compare options",
-    description: "Compare breaking the lease vs subletting vs staying to term: net cost of each path with assumptions and risks.",
+    description: "Calculate the net cost of breaking, subletting, or staying in a lease. Use when evaluating lease exit strategies. NOT for calculating break fees alone; use estimate_break_cost instead.",
     inputSchema: { type: "object", properties: {
       ...BREAK_PROPS,
-      sublet_discount_pct: { type: "number" },
-      sublet_vacancy_months: { type: "number" },
+      sublet_discount_pct: { description: "Percentage discount on rent when subletting, as a number 0-100", type: "number" },
+      sublet_vacancy_months: { description: "Number of months the property may be vacant while subletting", type: "number" },
     }, required: ["monthly_rent", "months_remaining"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "break_lease": {
+         "type": "object",
+         "description": "Details about breaking the lease",
+         "properties": {
+          "total_cost": {
+           "type": "number",
+           "description": "Total cost of breaking the lease"
+          },
+          "break_fee": {
+           "type": "number",
+           "description": "Early-termination fee"
+          },
+          "notice_cost": {
+           "type": "number",
+           "description": "Cost associated with giving notice"
+          },
+          "reletting_fee": {
+           "type": "number",
+           "description": "Fee for finding a new tenant"
+          },
+          "remaining_rent": {
+           "type": "number",
+           "description": "Rent for the remaining months"
+          },
+          "risks": {
+           "type": "array",
+           "description": "Potential risks associated with breaking the lease",
+           "items": {
+            "type": "string"
+           }
+          }
+         },
+         "required": [
+          "total_cost",
+          "break_fee",
+          "notice_cost",
+          "reletting_fee",
+          "remaining_rent",
+          "risks"
+         ]
+        },
+        "sublet": {
+         "type": "object",
+         "description": "Details about subletting the lease",
+         "properties": {
+          "total_cost": {
+           "type": "number",
+           "description": "Total cost of subletting"
+          },
+          "sublet_income": {
+           "type": "number",
+           "description": "Income from subletting"
+          },
+          "sublet_discount": {
+           "type": "number",
+           "description": "Discount applied to the sublet rent"
+          },
+          "vacancy_cost": {
+           "type": "number",
+           "description": "Cost associated with vacancy months"
+          },
+          "risks": {
+           "type": "array",
+           "description": "Potential risks associated with subletting",
+           "items": {
+            "type": "string"
+           }
+          }
+         },
+         "required": [
+          "total_cost",
+          "sublet_income",
+          "sublet_discount",
+          "vacancy_cost",
+          "risks"
+         ]
+        },
+        "stay_to_term": {
+         "type": "object",
+         "description": "Details about staying to the end of the lease term",
+         "properties": {
+          "total_cost": {
+           "type": "number",
+           "description": "Total cost of staying to the end of the lease term"
+          },
+          "remaining_rent": {
+           "type": "number",
+           "description": "Rent for the remaining months"
+          },
+          "risks": {
+           "type": "array",
+           "description": "Potential risks associated with staying to the end of the lease term",
+           "items": {
+            "type": "string"
+           }
+          }
+         },
+         "required": [
+          "total_cost",
+          "remaining_rent",
+          "risks"
+         ]
+        }
+       },
+       "required": [
+        "break_lease",
+        "sublet",
+        "stay_to_term"
+       ]
+      },
     run: (a: A) => {
       req(a, "monthly_rent", "num"); req(a, "months_remaining", "num");
       return compareOptions(a as unknown as Parameters<typeof compareOptions>[0]);
     } },
   { name: "notice_letter", title: "Notice letter",
-    description: "Draft a formal early-termination notice letter with your lease details, intended move-out date and fee acknowledgment.",
+    description: "Generate a formal early-termination notice letter for your lease. Use this when you need to formally notify your landlord of your intention to move out early. Do NOT use this when you need to estimate the financial impact of breaking your lease, use estimate_break_cost instead.",
     inputSchema: { type: "object", properties: {
-      tenant_name: { type: "string" },
-      property_address: { type: "string" },
-      lease_date: { type: "string" },
-      notice_months: { type: "number" },
+      tenant_name: { description: "The name of the tenant", type: "string" },
+      property_address: { description: "The address of the rental property", type: "string" },
+      lease_date: { description: "The start date of the lease YYYY-MM-DD", type: "string" },
+      notice_months: { description: "The number of months' notice required by the lease", type: "number" },
       intended_move_out_date: { type: "string", description: "YYYY-MM-DD" },
-      break_fee_months: { type: "number" },
-      monthly_rent: { type: "number" },
-      deposit: { type: "number" },
-      landlord_name: { type: "string" },
-      reason: { type: "string" },
+      break_fee_months: { description: "The number of months' rent as a break fee", type: "number" },
+      monthly_rent: { description: "The monthly rent amount in USD", type: "number" },
+      deposit: { description: "The security deposit amount in USD", type: "number" },
+      landlord_name: { description: "The name of the landlord", type: "string" },
+      reason: { description: "The reason for early termination", type: "string" },
     }, required: ["tenant_name", "property_address", "notice_months", "intended_move_out_date"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "letter": {
+         "type": "string",
+         "description": "The generated formal early-termination notice letter as a plain text string."
+        },
+        "tenant_name": {
+         "type": "string",
+         "description": "The name of the tenant who is terminating the lease."
+        },
+        "property_address": {
+         "type": "string",
+         "description": "The address of the property being vacated."
+        },
+        "lease_date": {
+         "type": "string",
+         "description": "The start date of the lease agreement."
+        },
+        "notice_months": {
+         "type": "number",
+         "description": "The number of months' notice being given for early termination."
+        },
+        "intended_move_out_date": {
+         "type": "string",
+         "description": "The intended move-out date in YYYY-MM-DD format."
+        },
+        "break_fee_months": {
+         "type": "number",
+         "description": "The number of months of rent that will be charged as a break fee."
+        },
+        "monthly_rent": {
+         "type": "number",
+         "description": "The monthly rent amount for the property."
+        },
+        "deposit": {
+         "type": "number",
+         "description": "The security deposit amount for the property."
+        },
+        "landlord_name": {
+         "type": "string",
+         "description": "The name of the landlord or property manager."
+        },
+        "reason": {
+         "type": "string",
+         "description": "The reason for early termination, if provided."
+        }
+       },
+       "required": [
+        "letter",
+        "tenant_name",
+        "property_address",
+        "intended_move_out_date"
+       ]
+      },
     run: (a: A) => {
       req(a, "tenant_name", "str"); req(a, "property_address", "str"); req(a, "notice_months", "num"); req(a, "intended_move_out_date", "str");
       return noticeLetter(a as unknown as Parameters<typeof noticeLetter>[0]);
     } },
   { name: "negotiation_checklist", title: "Negotiation checklist",
-    description: "A negotiation plan for leaving early: what to ask the landlord, in what order, tailored to your fee, remaining months and local demand.",
+    description: "Generate a negotiation plan for early lease termination, based on your specific situation. Use when you're ready to negotiate, NOT when estimating costs (use estimate_break_cost).",
     inputSchema: { type: "object", properties: {
-      break_fee_months: { type: "number" },
-      months_remaining: { type: "number" },
-      landlord_mitigates: { type: "boolean" },
-      relet_demand: { type: "string", enum: ["high", "medium", "low"] },
+      break_fee_months: { description: "Number of months' rent you must pay as a break fee", type: "number" },
+      months_remaining: { description: "Number of months left on your lease", type: "number" },
+      landlord_mitigates: { description: "True if landlord will try to mitigate damages, false otherwise", type: "boolean" },
+      relet_demand: { description: "Local demand for reletting the property, e.g. high, medium, low", type: "string", enum: ["high", "medium", "low"] },
     }, required: [] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "steps": {
+         "type": "array",
+         "description": "Ordered list of negotiation steps.",
+         "items": {
+          "type": "object",
+          "properties": {
+           "step": {
+            "type": "string",
+            "description": "The specific action to take."
+           },
+           "details": {
+            "type": "string",
+            "description": "Additional information or considerations for the step."
+           },
+           "order": {
+            "type": "number",
+            "description": "The order in which the step should be taken."
+           }
+          },
+          "required": [
+           "step",
+           "details",
+           "order"
+          ]
+         }
+        },
+        "recommendations": {
+         "type": "object",
+         "description": "Additional recommendations based on the input parameters.",
+         "properties": {
+          "break_fee": {
+           "type": "string",
+           "description": "Recommendation on how to approach the break fee."
+          },
+          "relet_demand": {
+           "type": "string",
+           "description": "Recommendation based on the current relet demand."
+          },
+          "landlord_mitigation": {
+           "type": "string",
+           "description": "Recommendation based on whether the landlord can mitigate their losses."
+          }
+         },
+         "required": [
+          "break_fee",
+          "relet_demand",
+          "landlord_mitigation"
+         ]
+        }
+       },
+       "required": [
+        "steps",
+        "recommendations"
+       ]
+      },
     run: (a: A) => negotiationChecklist(a as unknown as Parameters<typeof negotiationChecklist>[0]) },
 ];
 
@@ -238,7 +528,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
       ttlMs: 3600000,
       cacheScope: "public",
     } }, 200, cors(request));
-    if (body.method === "tools/list") return json({ jsonrpc: "2.0", id, result: { tools: TOOLS.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema, annotations: { title: t.title, ...ANNOT } })) } }, 200, cors(request));
+    if (body.method === "tools/list") return json({ jsonrpc: "2.0", id, result: { tools: TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, outputSchema: t.outputSchema, annotations: { ...ANNOT } })) } }, 200, cors(request));
     if (body.method === "tools/call") {
       const tool = TOOLS.find((t) => t.name === body.params?.name);
       if (!tool) return json({ jsonrpc: "2.0", id, error: { code: -32602, message: `unknown tool '${body.params?.name}'` } }, 200, cors(request));

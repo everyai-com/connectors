@@ -6,7 +6,7 @@ import {
 interface Env { API_KEY?: string; OPENAI_APPS_CHALLENGE_TOKEN?: string; }
 
 const VERSION = "1.0.0";
-const RO = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+const RO = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 
 type A = Record<string, unknown>;
 const str = (v: unknown) => typeof v === "string";
@@ -18,37 +18,186 @@ const req = (a: A, k: string, t: "str" | "num") => {
 
 const TOOLS = [
   { name: "identify_pest", title: "Identify pest",
-    description: "Identify likely pests from observed signs: candidates with confidence, urgency and next steps.",
+    description: "Identify likely pests from observed signs. Use when signs are visible; avoid when scheduling is the priority, use find_slots.",
     inputSchema: { type: "object", properties: {
       signs: { type: "array", description: "Observed signs (type + where)", items: { type: "object" } } }, required: ["signs"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "candidates": {
+         "type": "array",
+         "description": "List of potential pests identified",
+         "items": {
+          "type": "object",
+          "properties": {
+           "name": {
+            "type": "string",
+            "description": "Name of the pest"
+           },
+           "confidence": {
+            "type": "number",
+            "description": "Confidence score of the identification, between 0 and 1"
+           },
+           "urgency": {
+            "type": "string",
+            "description": "Urgency level of the pest issue (e.g., 'high', 'medium', 'low')"
+           },
+           "next_steps": {
+            "type": "array",
+            "description": "Recommended next steps to address the pest issue",
+            "items": {
+             "type": "string"
+            }
+           }
+          },
+          "required": [
+           "name",
+           "confidence",
+           "urgency",
+           "next_steps"
+          ]
+         }
+        }
+       },
+       "required": [
+        "candidates"
+       ]
+      },
     annot: RO,
     run: (a: A) => identifyPest(a as unknown as Parameters<typeof identifyPest>[0]) },
   { name: "find_slots", title: "Find slots",
-    description: "Find open start times in availability windows that fit a visit length, every 30 minutes.",
+    description: "Find open start times in availability windows that fit a visit length, every 30 minutes. Use when scheduling appointments. Do NOT use when identifying pests.",
     inputSchema: { type: "object", properties: {
       availability: { type: "array", description: "Provider availability windows", items: { type: "object" } },
       day: { type: "string", description: "Filter to a weekday" },
       duration_min: { type: "number", description: "Visit length in minutes, 15-240, default 60" },
       after: { type: "string", description: "Only slots ending after HH:MM" },
       before: { type: "string", description: "Only slots starting before HH:MM" } }, required: ["availability"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "results": {
+         "type": "array",
+         "description": "List of available time slots",
+         "items": {
+          "type": "object",
+          "properties": {
+           "start_time": {
+            "type": "string",
+            "description": "The start time of the slot in HH:MM format"
+           },
+           "end_time": {
+            "type": "string",
+            "description": "The end time of the slot in HH:MM format"
+           }
+          },
+          "required": [
+           "start_time",
+           "end_time"
+          ]
+         }
+        }
+       },
+       "required": [
+        "results"
+       ]
+      },
     annot: RO,
     run: (a: A) => findSlots(a as unknown as Parameters<typeof findSlots>[0]) },
   { name: "quote_treatment", title: "Quote treatment",
-    description: "Quote a pest treatment with add-ons from a pricebook: line items, total price and total minutes.",
+    description: "Calculate the price and duration of a pest treatment with add-ons from a pricebook. Use when you need to generate a quote for a specific treatment. Do NOT use when comparing multiple providers; use compare_providers instead.",
     inputSchema: { type: "object", properties: {
       pricebook: { type: "array", description: "Provider pricebook", items: { type: "object" } },
       treatment: { type: "string", description: "Treatment to quote" },
       add_ons: { type: "array", description: "Add-on treatment names", items: { type: "string" } } }, required: ["pricebook", "treatment"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "line_items": {
+         "type": "array",
+         "description": "List of line items for the treatment and add-ons",
+         "items": {
+          "type": "object",
+          "properties": {
+           "name": {
+            "type": "string",
+            "description": "Name of the treatment or add-on"
+           },
+           "price": {
+            "type": "number",
+            "description": "Price of the treatment or add-on"
+           },
+           "minutes": {
+            "type": "integer",
+            "description": "Duration in minutes for the treatment or add-on"
+           }
+          },
+          "required": [
+           "name",
+           "price",
+           "minutes"
+          ]
+         }
+        },
+        "total_price": {
+         "type": "number",
+         "description": "Total price for the treatment and add-ons"
+        },
+        "total_minutes": {
+         "type": "integer",
+         "description": "Total duration in minutes for the treatment and add-ons"
+        }
+       },
+       "required": [
+        "line_items",
+        "total_price",
+        "total_minutes"
+       ]
+      },
     annot: RO,
     run: (a: A) => { req(a, "treatment", "str"); return quoteTreatment(a as unknown as Parameters<typeof quoteTreatment>[0]); } },
   { name: "compare_providers", title: "Compare providers",
-    description: "Rank 2-6 pest providers from your price, rating and distance numbers: 50% rating, 30% price, 20% distance.",
+    description: "Rank pest providers by price, rating, and distance. Use when you need to select the best provider from a list. Do NOT use when you need to find available time slots for a provider.",
     inputSchema: { type: "object", properties: {
       providers: { type: "array", description: "Providers to compare", items: { type: "object" } } }, required: ["providers"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "rankedProviders": {
+         "type": "array",
+         "description": "List of providers ranked by rating, price, and distance",
+         "items": {
+          "type": "object",
+          "properties": {
+           "providerId": {
+            "type": "string",
+            "description": "Unique identifier for the provider"
+           },
+           "rank": {
+            "type": "integer",
+            "description": "Rank of the provider based on the scoring criteria"
+           },
+           "score": {
+            "type": "number",
+            "description": "Calculated score based on rating, price, and distance"
+           }
+          },
+          "required": [
+           "providerId",
+           "rank",
+           "score"
+          ]
+         }
+        }
+       },
+       "required": [
+        "rankedProviders"
+       ]
+      },
     annot: RO,
     run: (a: A) => compareProviders(a as unknown as Parameters<typeof compareProviders>[0]) },
   { name: "build_dispatch_request", title: "Build dispatch request",
-    description: "Draft a dispatch-request message to send a pest provider: treatment, date, time, name and units. Draft only, never sent.",
+    description: "Create a dispatch-request message for pest provider. Use when you have all the details and need a draft. Do NOT use when you need to find available time slots, use find_slots.",
     inputSchema: { type: "object", properties: {
       treatment: { type: "string", description: "Treatment needed" },
       date: { type: "string", description: "Date YYYY-MM-DD" },
@@ -56,14 +205,97 @@ const TOOLS = [
       name: { type: "string", description: "Your name" },
       phone: { type: "string", description: "Callback number" },
       units: { type: "number", description: "Units, 1-10, default 1" } }, required: ["treatment", "date", "time", "name"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "message": {
+         "type": "string",
+         "description": "The draft dispatch-request message."
+        },
+        "recipient": {
+         "type": "string",
+         "description": "The pest provider's name or identifier."
+        },
+        "details": {
+         "type": "object",
+         "description": "The details of the dispatch request.",
+         "properties": {
+          "treatment": {
+           "type": "string",
+           "description": "The treatment needed."
+          },
+          "date": {
+           "type": "string",
+           "description": "The date of the treatment in YYYY-MM-DD format."
+          },
+          "time": {
+           "type": "string",
+           "description": "The time of the treatment in HH:MM 24h format."
+          },
+          "name": {
+           "type": "string",
+           "description": "The name of the person requesting the treatment."
+          },
+          "phone": {
+           "type": "string",
+           "description": "The callback number for the person requesting the treatment."
+          },
+          "units": {
+           "type": "number",
+           "description": "The number of units for the treatment, between 1 and 10."
+          }
+         },
+         "required": [
+          "treatment",
+          "date",
+          "time",
+          "name"
+         ]
+        }
+       },
+       "required": [
+        "message",
+        "recipient",
+        "details"
+       ]
+      },
     annot: RO,
     run: (a: A) => { req(a, "treatment", "str"); req(a, "date", "str"); req(a, "time", "str"); req(a, "name", "str"); return buildDispatchRequest(a as unknown as Parameters<typeof buildDispatchRequest>[0]); } },
   { name: "retreat_schedule", title: "Retreat schedule",
-    description: "Compute the next N retreatment dates every K weeks after a last visit.",
+    description: "Schedule N retreats every K weeks after a last visit. Use when planning long-term pest control. Do NOT use when needing to identify pests, use identify_pest.",
     inputSchema: { type: "object", properties: {
       last_visit: { type: "string", description: "Last visit YYYY-MM-DD" },
       every_weeks: { type: "number", description: "Interval in weeks, 1-52, default 4" },
       count: { type: "number", description: "How many dates, 1-12, default 3" } }, required: ["last_visit"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "results": {
+         "type": "array",
+         "description": "List of retreat schedule entries.",
+         "items": {
+          "type": "object",
+          "properties": {
+           "retreat_date": {
+            "type": "string",
+            "description": "The scheduled date for the retreat in YYYY-MM-DD format."
+           },
+           "week_number": {
+            "type": "number",
+            "description": "The week number relative to the last visit."
+           }
+          },
+          "required": [
+           "retreat_date",
+           "week_number"
+          ]
+         }
+        }
+       },
+       "required": [
+        "results"
+       ]
+      },
     annot: RO,
     run: (a: A) => { req(a, "last_visit", "str"); return retreatSchedule(a as unknown as Parameters<typeof retreatSchedule>[0]); } },
 ];
@@ -222,7 +454,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     if (body.method === "notifications/initialized")
       return new Response(null, { status: 202, headers: base });
     if (body.method === "tools/list")
-      return json({ jsonrpc: "2.0", id: body.id, result: { tools: TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, annotations: t.annot })) } }, 200, base);
+      return json({ jsonrpc: "2.0", id: body.id, result: { tools: TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, outputSchema: t.outputSchema, annotations: t.annot })) } }, 200, base);
     if (body.method === "tools/call") {
       const tool = TOOLS.find((t) => t.name === body.params?.name);
       if (!tool) return json({ jsonrpc: "2.0", id: body.id, error: { code: -32602, message: `unknown tool '${body.params?.name}'` } }, 200, base);

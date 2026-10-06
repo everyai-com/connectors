@@ -4,7 +4,7 @@ import { matchDayPlan, roundRobinSchedule, seasonPlan, standingsTable } from "..
 interface Env { API_KEY?: string; OPENAI_APPS_CHALLENGE_TOKEN?: string; }
 const VERSION = "1.0.0";
 const MAX_BODY = 1024 * 1024;
-const ANNOT = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+const ANNOT = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 
 type A = Record<string, unknown>;
 const req = (a: A, k: string, t: string): never | unknown => {
@@ -17,42 +17,207 @@ const req = (a: A, k: string, t: string): never | unknown => {
 
 const TOOLS = [
   { name: "round_robin_schedule", title: "Round robin schedule",
-    description: "Build a circle-method round-robin fixture schedule: every pair of teams meets once, or twice when second_leg is set. Odd team counts get one bye per round.",
+    description: "Generate a round-robin fixture schedule for a set of teams. Use when needing a balanced, circular schedule. Avoid when needing a single matchday plan (use match_day_plan).",
     inputSchema: { type: "object", properties: {
       teams: { type: "array", items: { type: "string" }, description: "Team names (2 or more, unique)" },
       rounds: { type: "number", description: "Optional number of rounds to return (1..full schedule)" },
       second_leg: { type: "boolean", description: "Also schedule the reverse fixtures for a double round-robin" },
     }, required: ["teams"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "schedule": {
+         "type": "array",
+         "description": "List of rounds in the schedule",
+         "items": {
+          "type": "object",
+          "properties": {
+           "round": {
+            "type": "number",
+            "description": "The round number"
+           },
+           "matches": {
+            "type": "array",
+            "description": "List of matches in the round",
+            "items": {
+             "type": "object",
+             "properties": {
+              "home": {
+               "type": "string",
+               "description": "The home team name"
+              },
+              "away": {
+               "type": "string",
+               "description": "The away team name"
+              }
+             },
+             "required": [
+              "home",
+              "away"
+             ]
+            }
+           },
+           "bye": {
+            "type": "string",
+            "description": "The team with a bye in this round (if any)"
+           }
+          },
+          "required": [
+           "round",
+           "matches"
+          ]
+         }
+        }
+       },
+       "required": [
+        "schedule"
+       ]
+      },
     run: (a: A) => {
       req(a, "teams", "arr");
       return roundRobinSchedule(a as unknown as Parameters<typeof roundRobinSchedule>[0]);
     } },
   { name: "standings_table", title: "Standings table",
-    description: "Aggregate match results into a league table with played, wins, draws, losses, goals for/against, goal difference and points, sorted by points, then goal difference, then goals for, then name.",
+    description: "Generate a standings table from match results. Use when you need to rank teams based on their performance. Do NOT use when you need to plan future matches; use round_robin_schedule instead.",
     inputSchema: { type: "object", properties: {
       results: { type: "array", items: { type: "object", properties: { home: { type: "string" }, away: { type: "string" }, home_score: { type: "number" }, away_score: { type: "number" } }, required: ["home", "away", "home_score", "away_score"] }, description: "Match results in any order" },
       teams: { type: "array", items: { type: "string" }, description: "Full roster; results for teams outside it are skipped with a warning" },
       points_win: { type: "number", description: "Points for a win, default 3" },
       points_draw: { type: "number", description: "Points for a draw, default 1" },
     }, required: ["results"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "standings": {
+         "type": "array",
+         "description": "List of teams with their respective standings data",
+         "items": {
+          "type": "object",
+          "properties": {
+           "name": {
+            "type": "string",
+            "description": "Name of the team"
+           },
+           "played": {
+            "type": "number",
+            "description": "Number of matches played by the team"
+           },
+           "wins": {
+            "type": "number",
+            "description": "Number of matches won by the team"
+           },
+           "draws": {
+            "type": "number",
+            "description": "Number of matches drawn by the team"
+           },
+           "losses": {
+            "type": "number",
+            "description": "Number of matches lost by the team"
+           },
+           "goals_for": {
+            "type": "number",
+            "description": "Total goals scored by the team"
+           },
+           "goals_against": {
+            "type": "number",
+            "description": "Total goals conceded by the team"
+           },
+           "goal_difference": {
+            "type": "number",
+            "description": "Difference between goals scored and conceded"
+           },
+           "points": {
+            "type": "number",
+            "description": "Total points accumulated by the team"
+           }
+          },
+          "required": [
+           "name",
+           "played",
+           "wins",
+           "draws",
+           "losses",
+           "goals_for",
+           "goals_against",
+           "goal_difference",
+           "points"
+          ]
+         }
+        },
+        "warnings": {
+         "type": "array",
+         "description": "List of warnings encountered during processing",
+         "items": {
+          "type": "string"
+         }
+        }
+       },
+       "required": [
+        "standings"
+       ]
+      },
     run: (a: A) => {
       req(a, "results", "arr");
       return standingsTable(a as unknown as Parameters<typeof standingsTable>[0]);
     } },
   { name: "match_day_plan", title: "Match day plan",
-    description: "Lay an ordered list of games onto a courts-by-slots time grid: game i goes to court (i mod courts) in slot (i div courts) and each slot is slot_minutes long, starting at start_time.",
+    description: "Assign games to courts and time slots for a match day. Use when you need to schedule multiple games across several courts. Do NOT use when you need to generate a full season schedule, use season_plan.",
     inputSchema: { type: "object", properties: {
       games: { type: "array", items: { type: "object", properties: { home: { type: "string" }, away: { type: "string" } }, required: ["home", "away"] }, description: "Games in the order they should be played" },
       courts: { type: "number", description: "Courts available (1-12)" },
       slot_minutes: { type: "number", description: "Minutes per time slot (10-180)" },
       start_time: { type: "string", description: "First kick-off, 24h HH:MM" },
     }, required: ["games", "courts", "slot_minutes", "start_time"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "schedule": {
+         "type": "array",
+         "description": "List of scheduled games with their respective courts and times.",
+         "items": {
+          "type": "object",
+          "properties": {
+           "game_index": {
+            "type": "integer",
+            "description": "The index of the game in the input list."
+           },
+           "home": {
+            "type": "string",
+            "description": "The home team of the game."
+           },
+           "away": {
+            "type": "string",
+            "description": "The away team of the game."
+           },
+           "court": {
+            "type": "integer",
+            "description": "The court number where the game is scheduled."
+           },
+           "time": {
+            "type": "string",
+            "description": "The start time of the game in 24h HH:MM format."
+           }
+          },
+          "required": [
+           "game_index",
+           "home",
+           "away",
+           "court",
+           "time"
+          ]
+         }
+        }
+       },
+       "required": [
+        "schedule"
+       ]
+      },
     run: (a: A) => {
       req(a, "games", "arr"); req(a, "courts", "num"); req(a, "slot_minutes", "num"); req(a, "start_time", "str");
       return matchDayPlan(a as unknown as Parameters<typeof matchDayPlan>[0]);
     } },
   { name: "season_plan", title: "Season plan",
-    description: "Size a season end-to-end: total fixtures from the round-robin, games per match day given the courts available, match days needed, and the calendar dates from a start date to the estimated finish date.",
+    description: "Plan a season end-to-end. Use when you need a full season overview. Do NOT use when you need to plan a single match day; use match_day_plan instead.",
     inputSchema: { type: "object", properties: {
       teams: { type: "array", items: { type: "string" }, description: "Team names (2 or more, unique)" },
       courts: { type: "number", description: "Courts available per match day (1-12)" },
@@ -61,6 +226,83 @@ const TOOLS = [
       days_between_rounds: { type: "number", description: "Days between match days, default 7" },
       second_leg: { type: "boolean", description: "Plan a double round-robin (each pair meets twice)" },
     }, required: ["teams", "courts", "slot_minutes", "start_date"] },
+      outputSchema: {
+       "type": "object",
+       "properties": {
+        "total_fixtures": {
+         "type": "integer",
+         "description": "Total number of matches in the season."
+        },
+        "games_per_match_day": {
+         "type": "integer",
+         "description": "Number of games scheduled per match day."
+        },
+        "match_days_needed": {
+         "type": "integer",
+         "description": "Total number of match days required to complete the season."
+        },
+        "start_date": {
+         "type": "string",
+         "format": "date",
+         "description": "The start date of the season."
+        },
+        "estimated_finish_date": {
+         "type": "string",
+         "format": "date",
+         "description": "The estimated finish date of the season."
+        },
+        "match_days": { description: "Array of match day plans, each with details for that day.",
+         "type": "array",
+         "items": {
+          "type": "object",
+          "properties": {
+           "date": {
+            "type": "string",
+            "format": "date",
+            "description": "The date of the match day."
+           },
+           "matches": {
+            "type": "array",
+            "items": {
+             "type": "object",
+             "properties": {
+              "team1": {
+               "type": "string",
+               "description": "The name of the first team."
+              },
+              "team2": {
+               "type": "string",
+               "description": "The name of the second team."
+              },
+              "time_slot": {
+               "type": "string",
+               "description": "The time slot for the match."
+              }
+             },
+             "required": [
+              "team1",
+              "team2",
+              "time_slot"
+             ]
+            }
+           }
+          },
+          "required": [
+           "date",
+           "matches"
+          ]
+         }
+        }
+       },
+       "required": [
+        "total_fixtures",
+        "games_per_match_day",
+        "match_days_needed",
+        "start_date",
+        "estimated_finish_date",
+        "match_days"
+       ]
+      },
     run: (a: A) => {
       req(a, "teams", "arr"); req(a, "courts", "num"); req(a, "slot_minutes", "num"); req(a, "start_date", "str");
       return seasonPlan(a as unknown as Parameters<typeof seasonPlan>[0]);
@@ -231,7 +473,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
       ttlMs: 3600000,
       cacheScope: "public",
     } }, 200, cors(request));
-    if (body.method === "tools/list") return json({ jsonrpc: "2.0", id, result: { tools: TOOLS.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema, annotations: { title: t.title, ...ANNOT } })) } }, 200, cors(request));
+    if (body.method === "tools/list") return json({ jsonrpc: "2.0", id, result: { tools: TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, outputSchema: t.outputSchema, annotations: { ...ANNOT } })) } }, 200, cors(request));
     if (body.method === "tools/call") {
       const tool = TOOLS.find((t) => t.name === body.params?.name);
       if (!tool) return json({ jsonrpc: "2.0", id, error: { code: -32602, message: `unknown tool '${body.params?.name}'` } }, 200, cors(request));

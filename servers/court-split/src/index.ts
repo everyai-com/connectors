@@ -40,33 +40,33 @@ function buildServer(): McpServer {
 
   server.tool(
     "split_costs",
-    "Split one total cost across players (equally or by relative weights) and show who owes what plus the fewest settle-up payments.",
+    "Split a total cost across players. Use when you need to divide a single expense. Not for dividing a series of expenses; use split_series instead.",
     {
       total_cost: z.number().describe("Total court/venue cost"),
       participants: z.array(Participant).describe("Players in the split"),
       shares: z.array(z.number()).optional().describe("Optional relative weights, one per participant (e.g. [2,1,1])"),
       currency: z.string().optional().describe("Currency code for display, default USD"),
     },
-    { title: "Split costs", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Split costs", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => splitCosts(a)),
   );
 
   server.tool(
     "settle_up",
-    "Given who paid what for a total cost, compute balances and the minimal set of payments to settle everyone.",
+    "Calculate minimal payments to settle shared costs. Use when you need to balance payments among participants. NOT for splitting a single cost equally among participants, use split_costs instead.",
     {
       total_cost: z.number().describe("Total cost that should be shared"),
       participants: z.array(Participant).describe("Players with what each paid"),
       shares: z.array(z.number()).optional().describe("Optional relative weights, one per participant"),
       currency: z.string().optional(),
     },
-    { title: "Settle up", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Settle up", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => settleUp(a)),
   );
 
   server.tool(
     "split_series",
-    "Account for recurring sessions where different players attend different days: each session splits only among its attendees; returns who owes what and settle-up payments.",
+    "Split recurring sessions by attendees: use when sessions have varying attendees; NOT when all sessions have the same attendees, use rotation_plan.",
     {
       sessions: z.array(z.object({
         label: z.string().optional().describe("e.g. 'Tue 7pm'"),
@@ -77,20 +77,20 @@ function buildServer(): McpServer {
       payments: z.array(Participant).optional().describe("Who already paid what (e.g. who fronted the court fees)"),
       currency: z.string().optional(),
     },
-    { title: "Split series", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Split series", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => splitSeries(a)),
   );
 
   server.tool(
     "rotation_plan",
-    "Plan fair rotations for pickup games: who plays each round, who sits out, and games-played balance across the roster.",
+    "Generate fair rotations for pickup games. Use when you need balanced gameplay. Do NOT use when splitting costs among players.",
     {
       players: z.array(z.string()).describe("Roster names"),
       capacity: z.number().describe("Players per court (2 singles, 4 doubles)"),
       courts: z.number().optional().describe("Number of courts, default 1"),
       rounds: z.number().describe("Rounds to schedule (1-50)"),
     },
-    { title: "Rotation plan", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Rotation plan", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => rotationPlan(a)),
   );
 

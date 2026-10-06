@@ -46,45 +46,45 @@ function buildServer(): McpServer {
 
   server.tool(
     "find_courts",
-    "Find padel clubs matching indoor, price and rating filters, ranked by rating, price and distance.",
+    "Filter courts by indoor availability, price and rating, then rank by rating, price and distance. Use when prioritizing specific court features and budget. NOT for finding courts by location or availability..",
     {
       clubs: z.array(Club).describe("Clubs to search"),
       indoor_only: z.boolean().optional().describe("Only indoor courts"),
       max_price: z.number().optional().describe("Max price per hour in USD"),
       min_rating: z.number().optional().describe("Min rating 1-5"),
     },
-    { title: "Find courts", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Find courts", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => findCourts(a)),
   );
 
   server.tool(
     "quote_session",
-    "Quote a padel session: hours, players and ball machine into a total plus per-player split.",
+    "Calculate the total cost and per-player split for a padel session. Use when booking a court and splitting the cost among players; NOT for recurring memberships, use membership_break_even instead.",
     {
       price_per_hour: z.number().describe("Court price per hour in USD"),
       hours: z.number().optional().describe("0.5, 1, 1.5 or 2; default 1"),
       players: z.number().optional().describe("Players splitting, 2-8, default 4"),
       ball_machine: z.boolean().optional().describe("Add $15 ball machine"),
     },
-    { title: "Quote session", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Quote session", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => quoteSession(a)),
   );
 
   server.tool(
     "membership_break_even",
-    "Compute how many sessions a month justify a club membership over pay-as-you-go, with a verdict at your volume.",
+    "Calculate the break-even point for a club membership versus pay-as-you-go sessions. Use when evaluating membership value; NOT for comparing membership tiers. Use membership_break_even_tiers instead.",
     {
       membership_monthly: z.number().describe("Monthly membership in USD"),
       payg_per_session: z.number().describe("Pay-as-you-go price per session in USD"),
       sessions_per_month: z.number().describe("Your monthly sessions"),
     },
-    { title: "Membership break-even", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Membership break-even", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => membershipBreakEven(a)),
   );
 
   server.tool(
     "build_booking_request",
-    "Draft a booking-request message to send a club: club, date, time, name and players. Draft only, never sent.",
+    "Create a booking-request message for a club. Use when you need to draft a request to book a court. Do NOT use when you need to find available courts; use find_courts instead.",
     {
       club: z.string().describe("Club to book"),
       date: z.string().describe("Date YYYY-MM-DD"),
@@ -92,25 +92,25 @@ function buildServer(): McpServer {
       name: z.string().describe("Your name"),
       players: z.number().optional().describe("Players, 2-8, default 4"),
     },
-    { title: "Build booking request", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Build booking request", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => buildBookingRequest(a)),
   );
 
   server.tool(
     "match_reminders",
-    "Compute reminder datetimes before a match start from lead times in hours.",
+    "Calculate reminder datetimes before a match starts from lead times in hours. Use when you need to schedule match reminders. Do NOT use for real-time notifications; use find_courts instead.",
     {
       match: z.string().describe("Match booked"),
       starts_at: z.string().describe("Match start, ISO datetime"),
       lead_hours: z.array(z.number()).optional().describe("Lead times in hours, default [24, 2]"),
     },
-    { title: "Match reminders", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Match reminders", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => matchReminders(a)),
   );
 
   server.tool(
     "week_plan",
-    "Plan the most sessions a budget buys: cheapest-first picks with total and leftover.",
+    "Calculate the maximum sessions a budget buys, prioritizing cheapest sessions first. Use when optimizing weekly spending on sessions; NOT for single-session planning. Use find_courts for court availability.",
     {
       budget: z.number().describe("Weekly budget in USD"),
       sessions: z.array(z.object({
@@ -118,7 +118,7 @@ function buildServer(): McpServer {
         price: z.number().describe("Session price in USD"),
       })).describe("Candidate sessions"),
     },
-    { title: "Week plan", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    { title: "Week plan", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async (a) => wrap(() => weekPlan(a)),
   );
 
